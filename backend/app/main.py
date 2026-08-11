@@ -1,82 +1,97 @@
-from datetime import datetime, timedelta, timezone
+import os
 
-import bcrypt
-from jose import JWTError, jwt
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import settings
+from app.models.base import Base
+from app.core.database import engine, SessionLocal
 
+from app.api.v1 import academic
+from app.api.v1 import auth
+from app.api.v1 import students
+from app.api.v1 import departments
+from app.api.v1 import programmes
+from app.api.v1 import levels
+from app.api.v1 import sessions
+from app.api.v1 import assessments
+from app.api.v1 import users
+from app.api.v1 import audit
 
-def hash_password(password: str) -> str:
-    password_bytes = password.encode("utf-8")
-
-    if len(password_bytes) > 72:
-        raise ValueError("Password cannot be longer than 72 bytes.")
-
-    hashed = bcrypt.hashpw(
-        password_bytes,
-        bcrypt.gensalt(),
-    )
-
-    return hashed.decode("utf-8")
-
-
-def verify_password(
-    password: str,
-    password_hash: str,
-) -> bool:
-    password_bytes = password.encode("utf-8")
-
-    if len(password_bytes) > 72:
-        return False
-
-    return bcrypt.checkpw(
-        password_bytes,
-        password_hash.encode("utf-8"),
-    )
+from app.models.user import User
+from app.utils.security import hash_password
 
 
-def create_access_token(
-    subject: str,
-    expires_minutes: int | None = None,
-) -> str:
-
-    expire_minutes = (
-        expires_minutes
-        if expires_minutes is not None
-        else settings.access_token_expire_minutes
-    )
-
-    expire = datetime.now(timezone.utc) + timedelta(
-        minutes=expire_minutes
-    )
-
-    payload = {
-        "sub": subject,
-        "exp": expire,
-    }
-
-    return jwt.encode(
-        payload,
-        settings.jwt_secret_key,
-        algorithm=settings.jwt_algorithm,
-    )
+app = FastAPI(
+    title="Computing Science Department KDU",
+    version="1.0.0",
+)
 
 
-def decode_access_token(token: str) -> str | None:
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+app.include_router(auth.router)
+app.include_router(departments.router)
+app.include_router(programmes.router)
+app.include_router(levels.router)
+app.include_router(students.router)
+app.include_router(academic.router)
+app.include_router(sessions.router)
+app.include_router(assessments.router)
+app.include_router(users.router)
+app.include_router(audit.router)
+
+
+@app.on_event("startup")
+def create_initial_admin():
+
+    Base.metadata.create_all(bind=engine)
+
+    username = os.getenv("ADMIN_USERNAME")
+    password = os.getenv("ADMIN_PASSWORD")
+
+    if not username or not password:
+        return
+
+    db = SessionLocal()
 
     try:
-        payload = jwt.decode(
-            token,
-            settings.jwt_secret_key,
-            algorithms=[settings.jwt_algorithm],
+        existing_user = (
+            db.query(User)
+            .filter(User.username == username)
+            .first()
         )
 
-        subject = payload.get("sub")
+        if existing_user:
+            return
 
-        if not subject:
-            return None
+        admin = User(
+            username=username,
+            password_hash=hash_password(password),
+            full_name="System Administrator",
+            role="admin",
+            is_active=True,
+            is_deleted=False,
+        )
 
-        return str(subject)
+        db.add(admin)
+        db.commit()
 
-    except JWTError:
-        return None
+    finally:
+        db.close()
+
+
+@app.get("/")
+def root():
+    return {
+        "message": "Educational Management System API is running"
+    }
