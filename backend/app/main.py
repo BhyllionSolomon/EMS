@@ -3,6 +3,9 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.models.base import Base
+from app.core.database import engine, SessionLocal
+
 from app.api.v1 import academic
 from app.api.v1 import auth
 from app.api.v1 import students
@@ -14,7 +17,6 @@ from app.api.v1 import assessments
 from app.api.v1 import users
 from app.api.v1 import audit
 
-from app.core.database import SessionLocal
 from app.models.user import User
 from app.utils.security import hash_password
 
@@ -23,6 +25,7 @@ app = FastAPI(
     title="Computing Science Department KDU",
     version="1.0.0",
 )
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -50,9 +53,14 @@ app.include_router(audit.router)
 
 @app.on_event("startup")
 def create_initial_admin():
+
+    # Create all database tables if they do not already exist
+    Base.metadata.create_all(bind=engine)
+
     username = os.getenv("ADMIN_USERNAME")
     password = os.getenv("ADMIN_PASSWORD")
 
+    # Do nothing if the admin environment variables are not configured
     if not username or not password:
         return
 
@@ -65,6 +73,7 @@ def create_initial_admin():
             .first()
         )
 
+        # Do not create the admin again if it already exists
         if existing_user:
             return
 
