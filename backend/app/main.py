@@ -1,7 +1,7 @@
-from fastapi import FastAPI
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
 
 from app.api.v1 import academic
 from app.api.v1 import auth
@@ -14,10 +14,16 @@ from app.api.v1 import assessments
 from app.api.v1 import users
 from app.api.v1 import audit
 
+from app.core.database import SessionLocal
+from app.models.user import User
+from app.utils.security import hash_password
+
+
 app = FastAPI(
-    title="Educational Management System",
+    title="Computing Science Department KDU",
     version="1.0.0",
 )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -40,6 +46,42 @@ app.include_router(sessions.router)
 app.include_router(assessments.router)
 app.include_router(users.router)
 app.include_router(audit.router)
+
+
+@app.on_event("startup")
+def create_initial_admin():
+    username = os.getenv("ADMIN_USERNAME")
+    password = os.getenv("ADMIN_PASSWORD")
+
+    if not username or not password:
+        return
+
+    db = SessionLocal()
+
+    try:
+        existing_user = (
+            db.query(User)
+            .filter(User.username == username)
+            .first()
+        )
+
+        if existing_user:
+            return
+
+        admin = User(
+            username=username,
+            password_hash=hash_password(password),
+            full_name="System Administrator",
+            role="admin",
+            is_active=True,
+            is_deleted=False,
+        )
+
+        db.add(admin)
+        db.commit()
+
+    finally:
+        db.close()
 
 
 @app.get("/")
