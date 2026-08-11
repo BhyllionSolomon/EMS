@@ -1,4 +1,3 @@
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import {
@@ -21,7 +20,7 @@ import {
   ArrowLeft,
 } from "lucide-react";
 
-const API_URL = "http://127.0.0.1:8000";
+const API_URL = import.meta.env.VITE_API_URL;
 
 const THEMES = [
   { value: "light", label: "Light" },
@@ -2199,9 +2198,8 @@ function AssessmentPage({
             </h2>
 
             <p>
-              Search by name or any
-              part of the matriculation
-              number.
+              Search by name or any part
+              of the matriculation number.
             </p>
           </div>
 
