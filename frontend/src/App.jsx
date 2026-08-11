@@ -21,7 +21,7 @@ import {
   ArrowLeft,
 } from "lucide-react";
 
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL = "https://ems-backend-app-2ju7.onrender.com";
 
 const THEMES = [
   { value: "light", label: "Light" },
