@@ -50,6 +50,7 @@ app.include_router(sessions.router)
 app.include_router(assessments.router)
 app.include_router(users.router)
 app.include_router(audit.router)
+app.include_router(imports.router)
 
 
 @app.on_event("startup")
