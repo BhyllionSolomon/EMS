@@ -1,10 +1,5 @@
 from io import BytesIO
-from decimal import Decimal
-
-from app.models.student import Student
-from app.models.assessment import Assessment
-from app.models.user import User
-from app.api.v1.auth import get_current_user
+from decimal import Decimal, InvalidOperation
 
 from fastapi import (
     APIRouter,
@@ -18,10 +13,11 @@ from sqlalchemy.orm import Session
 from openpyxl import load_workbook
 
 from app.core.database import get_db
+from app.core.auth_dependency import get_current_user
+
 from app.models.student import Student
 from app.models.assessment import Assessment
 from app.models.user import User
-from app.api.v1.auth import get_current_user
 
 
 router = APIRouter(
@@ -30,7 +26,6 @@ router = APIRouter(
 )
 
 
-# Excel column name -> EMS database field
 COLUMN_ALIASES = {
     "matric number": "matric_number",
     "matriculation number": "matric_number",
@@ -90,14 +85,17 @@ def get_recommendation(total):
     return "Pass" if total >= 50 else "Fail"
 
 
-def get_headers(ws):
+def find_headers(ws):
     """
-    Search the first 12 rows for the header row.
+    Search the first 12 rows for the Excel header row.
+
     Returns:
-        (header_row_number, headers)
-    where headers is:
+        (header_row, headers)
+
+    headers format:
         {
-            "matric number": (row, column),
+            "matric number": column_number,
+            "oral presentation": column_number,
             ...
         }
     """
@@ -107,7 +105,7 @@ def get_headers(ws):
         min(ws.max_row, 12) + 1,
     ):
 
-        headers = {}
+        candidate_headers = {}
 
         for column in range(
             1,
@@ -122,18 +120,38 @@ def get_headers(ws):
             )
 
             if value:
-                headers[value] = (
-                    row_number,
-                    column,
-                )
+                candidate_headers[value] = column
 
         if (
-            "matric number" in headers
-            or "matriculation number" in headers
+            "matric number" in candidate_headers
+            or "matriculation number" in candidate_headers
         ):
-            return row_number, headers
+            return row_number, candidate_headers
 
     return None, {}
+
+
+def parse_score(value):
+    """
+    Convert an Excel score to Decimal.
+
+    Returns None when the value is not usable.
+    """
+
+    if value is None:
+        return None
+
+    if isinstance(value, str):
+        value = value.strip()
+
+        if not value:
+            return None
+
+    try:
+        return Decimal(str(value))
+
+    except (InvalidOperation, ValueError, TypeError):
+        return None
 
 
 @router.post("/excel")
@@ -161,6 +179,12 @@ async def import_excel(
 
     contents = await file.read()
 
+    if not contents:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The uploaded Excel file is empty.",
+        )
+
     # ---------------------------------------------------------
     # 2. Open workbook
     # ---------------------------------------------------------
@@ -182,47 +206,58 @@ async def import_excel(
     errors = []
 
     # ---------------------------------------------------------
-    # 3. Process every worksheet
+    # 3. Process worksheets
     # ---------------------------------------------------------
 
-    for worksheet_name in workbook.sheetnames:
+    for sheet_name in workbook.sheetnames:
 
         # Ignore summary/index sheets
-        if worksheet_name.strip().lower() in {
+        if sheet_name.strip().lower() in {
             "index",
             "summary",
             "contents",
         }:
             continue
 
-        ws = workbook[worksheet_name]
+        ws = workbook[sheet_name]
 
         # -----------------------------------------------------
         # Find header row
         # -----------------------------------------------------
 
-        header_row, headers = get_headers(ws)
+        header_row, headers = find_headers(ws)
 
         if header_row is None:
             skipped += 1
+
+            errors.append(
+                f"{sheet_name}: "
+                "No valid matriculation-number header found."
+            )
+
             continue
 
         # -----------------------------------------------------
-        # Find matric number column
+        # Find matriculation column
         # -----------------------------------------------------
 
-        if "matric number" in headers:
-            matric_column = headers[
-                "matric number"
-            ][1]
+        matric_column = headers.get(
+            "matric number"
+        )
 
-        elif "matriculation number" in headers:
-            matric_column = headers[
+        if matric_column is None:
+            matric_column = headers.get(
                 "matriculation number"
-            ][1]
+            )
 
-        else:
+        if matric_column is None:
             skipped += 1
+
+            errors.append(
+                f"{sheet_name}: "
+                "Matric number column not found."
+            )
+
             continue
 
         # -----------------------------------------------------
@@ -239,7 +274,7 @@ async def import_excel(
                 matric_column,
             ).value
 
-            # No matric number = no student on this row.
+            # Empty row
             if (
                 matric_value is None
                 or str(matric_value).strip() == ""
@@ -269,17 +304,19 @@ async def import_excel(
                 if not student:
 
                     errors.append(
-                        f"{worksheet_name}, row {row_number}: "
-                        f"student {matric} does not exist in EMS."
+                        f"{sheet_name}, row {row_number}: "
+                        f"student {matric} not found in EMS."
                     )
 
                     continue
 
                 # -------------------------------------------------
-                # Read assessment scores
+                # Extract assessment scores
                 # -------------------------------------------------
 
                 scores = {}
+
+                invalid_scores = []
 
                 for (
                     excel_header,
@@ -297,36 +334,49 @@ async def import_excel(
 
                     column = headers[
                         excel_header
-                    ][1]
+                    ]
 
                     value = ws.cell(
                         row_number,
                         column,
                     ).value
 
-                    # Empty score = not supplied
                     if (
                         value is None
                         or str(value).strip() == ""
                     ):
                         continue
 
-                    try:
+                    score = parse_score(value)
 
-                        scores[ems_field] = Decimal(
-                            str(value).strip()
+                    if score is None:
+
+                        invalid_scores.append(
+                            f"{excel_header}='{value}'"
                         )
 
-                    except Exception:
+                        continue
 
-                        errors.append(
-                            f"{worksheet_name}, row {row_number}: "
-                            f"invalid value '{value}' "
-                            f"for {excel_header}."
-                        )
+                    scores[
+                        ems_field
+                    ] = score
 
                 # -------------------------------------------------
-                # Check that all eight scores exist
+                # Invalid score values
+                # -------------------------------------------------
+
+                if invalid_scores:
+
+                    errors.append(
+                        f"{sheet_name}, row {row_number}: "
+                        f"invalid scores: "
+                        f"{', '.join(invalid_scores)}."
+                    )
+
+                    continue
+
+                # -------------------------------------------------
+                # Check all eight criteria
                 # -------------------------------------------------
 
                 missing = [
@@ -338,9 +388,52 @@ async def import_excel(
                 if missing:
 
                     errors.append(
-                        f"{worksheet_name}, row {row_number}: "
+                        f"{sheet_name}, row {row_number}: "
                         f"missing scores: "
                         f"{', '.join(missing)}."
+                    )
+
+                    continue
+
+                # -------------------------------------------------
+                # Validate individual score ranges
+                # -------------------------------------------------
+
+                maximum_scores = {
+                    "dressing_appearance": Decimal("10"),
+                    "oral_presentation": Decimal("10"),
+                    "slide_presentation": Decimal("10"),
+                    "depth_of_understanding": Decimal("15"),
+                    "project_implementation": Decimal("15"),
+                    "referencing_documentation": Decimal("15"),
+                    "contribution_originality": Decimal("15"),
+                    "professional_conduct": Decimal("10"),
+                }
+
+                invalid_range = []
+
+                for field in REQUIRED_SCORES:
+
+                    score = scores[field]
+
+                    maximum = maximum_scores[field]
+
+                    if (
+                        score < 0
+                        or score > maximum
+                    ):
+
+                        invalid_range.append(
+                            f"{field}={score} "
+                            f"(maximum {maximum})"
+                        )
+
+                if invalid_range:
+
+                    errors.append(
+                        f"{sheet_name}, row {row_number}: "
+                        f"scores outside valid ranges: "
+                        f"{', '.join(invalid_range)}."
                     )
 
                     continue
@@ -357,18 +450,15 @@ async def import_excel(
                     Decimal("0"),
                 )
 
-                # -------------------------------------------------
-                # Validate total
-                # -------------------------------------------------
-
                 if (
                     total_score < 0
                     or total_score > 100
                 ):
 
                     errors.append(
-                        f"{worksheet_name}, row {row_number}: "
-                        f"total score {total_score} is invalid."
+                        f"{sheet_name}, row {row_number}: "
+                        f"total score {total_score} "
+                        "is outside 0-100."
                     )
 
                     continue
@@ -378,7 +468,6 @@ async def import_excel(
                 # -------------------------------------------------
 
                 assessment = Assessment(
-
                     student_id=student.id,
 
                     assessor_id=current_user.id,
@@ -433,12 +522,12 @@ async def import_excel(
             except Exception as exc:
 
                 errors.append(
-                    f"{worksheet_name}, row {row_number}: "
+                    f"{sheet_name}, row {row_number}: "
                     f"{str(exc)}"
                 )
 
     # ---------------------------------------------------------
-    # 4. Save everything
+    # 4. Commit everything
     # ---------------------------------------------------------
 
     try:
