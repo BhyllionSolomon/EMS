@@ -7,7 +7,7 @@ from openpyxl import load_workbook
 
 from app.core.database import get_db
 from app.models.student import Student
-from app.models.assessment import Assessment
+
 from app.models.user import User
 from app.api.v1.auth import get_current_user
 
