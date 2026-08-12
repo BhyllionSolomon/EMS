@@ -10,7 +10,7 @@ from app.models.student import Student
 
 from app.models.user import User
 from app.api.v1.auth import get_current_user
-
+from app.models.assessment import Assessment
 
 router = APIRouter(
     prefix="/imports",
