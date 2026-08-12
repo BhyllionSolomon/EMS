@@ -1,7 +1,14 @@
 from io import BytesIO
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from sqlalchemy.orm import Session
 from openpyxl import load_workbook
 
@@ -18,6 +25,7 @@ router = APIRouter(
 )
 
 
+# Excel column name -> EMS database field
 COLUMN_ALIASES = {
     "matric number": "matric_number",
     "matriculation number": "matric_number",
@@ -31,13 +39,19 @@ COLUMN_ALIASES = {
     "dressing & appearance": "dressing_appearance",
 
     "oral presentation": "oral_presentation",
+
     "slide presentation": "slide_presentation",
+
     "depth of understanding": "depth_of_understanding",
+
     "project implementation": "project_implementation",
+
     "referencing & documentation": "referencing_documentation",
     "referencing and documentation": "referencing_documentation",
+
     "contribution & originality": "contribution_originality",
     "contribution and originality": "contribution_originality",
+
     "professional conduct": "professional_conduct",
 }
 
@@ -72,12 +86,34 @@ def get_recommendation(total):
 
 
 def get_headers(ws):
-    headers = {}
+    """
+    Search the first 12 rows for the header row.
+    Returns:
+        (header_row_number, headers)
+    where headers is:
+        {
+            "matric number": (row, column),
+            ...
+        }
+    """
 
-    for row_number in range(1, min(ws.max_row, 12) + 1):
-        for column in range(1, ws.max_column + 1):
+    for row_number in range(
+        1,
+        min(ws.max_row, 12) + 1,
+    ):
+
+        headers = {}
+
+        for column in range(
+            1,
+            ws.max_column + 1,
+        ):
+
             value = clean_header(
-                ws.cell(row_number, column).value
+                ws.cell(
+                    row_number,
+                    column,
+                ).value
             )
 
             if value:
@@ -102,9 +138,13 @@ async def import_excel(
     current_user: User = Depends(get_current_user),
 ):
 
+    # ---------------------------------------------------------
+    # 1. Validate file
+    # ---------------------------------------------------------
+
     if not file.filename:
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="No file selected.",
         )
 
@@ -116,14 +156,19 @@ async def import_excel(
 
     contents = await file.read()
 
+    # ---------------------------------------------------------
+    # 2. Open workbook
+    # ---------------------------------------------------------
+
     try:
         workbook = load_workbook(
             filename=BytesIO(contents),
             data_only=True,
         )
+
     except Exception:
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Unable to read the Excel file.",
         )
 
@@ -131,8 +176,13 @@ async def import_excel(
     skipped = 0
     errors = []
 
+    # ---------------------------------------------------------
+    # 3. Process every worksheet
+    # ---------------------------------------------------------
+
     for worksheet_name in workbook.sheetnames:
 
+        # Ignore summary/index sheets
         if worksheet_name.strip().lower() in {
             "index",
             "summary",
@@ -142,19 +192,37 @@ async def import_excel(
 
         ws = workbook[worksheet_name]
 
+        # -----------------------------------------------------
+        # Find header row
+        # -----------------------------------------------------
+
         header_row, headers = get_headers(ws)
 
         if header_row is None:
             skipped += 1
             continue
 
-        matric_header = (
-            "matric number"
-            if "matric number" in headers
-            else "matriculation number"
-        )
+        # -----------------------------------------------------
+        # Find matric number column
+        # -----------------------------------------------------
 
-        matric_column = headers[matric_header][1]
+        if "matric number" in headers:
+            matric_column = headers[
+                "matric number"
+            ][1]
+
+        elif "matriculation number" in headers:
+            matric_column = headers[
+                "matriculation number"
+            ][1]
+
+        else:
+            skipped += 1
+            continue
+
+        # -----------------------------------------------------
+        # Process student rows
+        # -----------------------------------------------------
 
         for row_number in range(
             header_row + 1,
@@ -166,6 +234,7 @@ async def import_excel(
                 matric_column,
             ).value
 
+            # No matric number = no student on this row.
             if (
                 matric_value is None
                 or str(matric_value).strip() == ""
@@ -173,9 +242,15 @@ async def import_excel(
                 skipped += 1
                 continue
 
-            matric = str(matric_value).strip()
+            matric = str(
+                matric_value
+            ).strip()
 
             try:
+
+                # -------------------------------------------------
+                # Find student in EMS
+                # -------------------------------------------------
 
                 student = (
                     db.query(Student)
@@ -187,15 +262,24 @@ async def import_excel(
                 )
 
                 if not student:
+
                     errors.append(
                         f"{worksheet_name}, row {row_number}: "
                         f"student {matric} does not exist in EMS."
                     )
+
                     continue
+
+                # -------------------------------------------------
+                # Read assessment scores
+                # -------------------------------------------------
 
                 scores = {}
 
-                for excel_header, ems_field in COLUMN_ALIASES.items():
+                for (
+                    excel_header,
+                    ems_field,
+                ) in COLUMN_ALIASES.items():
 
                     if excel_header not in headers:
                         continue
@@ -206,13 +290,16 @@ async def import_excel(
                     }:
                         continue
 
-                    column = headers[excel_header][1]
+                    column = headers[
+                        excel_header
+                    ][1]
 
                     value = ws.cell(
                         row_number,
                         column,
                     ).value
 
+                    # Empty score = not supplied
                     if (
                         value is None
                         or str(value).strip() == ""
@@ -220,17 +307,23 @@ async def import_excel(
                         continue
 
                     try:
+
                         scores[ems_field] = Decimal(
-                            str(value)
+                            str(value).strip()
                         )
+
                     except Exception:
+
                         errors.append(
                             f"{worksheet_name}, row {row_number}: "
                             f"invalid value '{value}' "
                             f"for {excel_header}."
                         )
 
-                # Leave rows with incomplete scores alone.
+                # -------------------------------------------------
+                # Check that all eight scores exist
+                # -------------------------------------------------
+
                 missing = [
                     field
                     for field in REQUIRED_SCORES
@@ -238,26 +331,51 @@ async def import_excel(
                 ]
 
                 if missing:
+
                     errors.append(
                         f"{worksheet_name}, row {row_number}: "
-                        f"missing scores: {', '.join(missing)}."
+                        f"missing scores: "
+                        f"{', '.join(missing)}."
                     )
+
                     continue
 
+                # -------------------------------------------------
+                # Calculate total
+                # -------------------------------------------------
+
                 total_score = sum(
-                    scores[field]
-                    for field in REQUIRED_SCORES
+                    (
+                        scores[field]
+                        for field in REQUIRED_SCORES
+                    ),
+                    Decimal("0"),
                 )
 
-                if total_score < 0 or total_score > 100:
+                # -------------------------------------------------
+                # Validate total
+                # -------------------------------------------------
+
+                if (
+                    total_score < 0
+                    or total_score > 100
+                ):
+
                     errors.append(
                         f"{worksheet_name}, row {row_number}: "
                         f"total score {total_score} is invalid."
                     )
+
                     continue
 
+                # -------------------------------------------------
+                # Create assessment
+                # -------------------------------------------------
+
                 assessment = Assessment(
+
                     student_id=student.id,
+
                     assessor_id=current_user.id,
 
                     dressing_appearance=scores[
@@ -299,10 +417,12 @@ async def import_excel(
                     ),
 
                     remarks=None,
+
                     is_deleted=False,
                 )
 
                 db.add(assessment)
+
                 imported += 1
 
             except Exception as exc:
@@ -312,16 +432,26 @@ async def import_excel(
                     f"{str(exc)}"
                 )
 
+    # ---------------------------------------------------------
+    # 4. Save everything
+    # ---------------------------------------------------------
+
     try:
+
         db.commit()
 
     except Exception as exc:
+
         db.rollback()
 
         raise HTTPException(
-            status_code=500,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Excel import failed: {str(exc)}",
         )
+
+    # ---------------------------------------------------------
+    # 5. Return result
+    # ---------------------------------------------------------
 
     return {
         "message": "Excel import completed.",
