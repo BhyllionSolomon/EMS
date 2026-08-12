@@ -1,4 +1,5 @@
 from io import BytesIO
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
@@ -17,7 +18,6 @@ router = APIRouter(
 )
 
 
-# Excel column name -> EMS field
 COLUMN_ALIASES = {
     "matric number": "matric_number",
     "matriculation number": "matric_number",
@@ -27,59 +27,72 @@ COLUMN_ALIASES = {
     "name": "full_name",
 
     "dress": "dressing_appearance",
+    "dressing": "dressing_appearance",
     "dressing & appearance": "dressing_appearance",
 
     "oral presentation": "oral_presentation",
-
     "slide presentation": "slide_presentation",
-
     "depth of understanding": "depth_of_understanding",
-
     "project implementation": "project_implementation",
-
     "referencing & documentation": "referencing_documentation",
-
+    "referencing and documentation": "referencing_documentation",
     "contribution & originality": "contribution_originality",
-
+    "contribution and originality": "contribution_originality",
     "professional conduct": "professional_conduct",
 }
+
+
+REQUIRED_SCORES = [
+    "dressing_appearance",
+    "oral_presentation",
+    "slide_presentation",
+    "depth_of_understanding",
+    "project_implementation",
+    "referencing_documentation",
+    "contribution_originality",
+    "professional_conduct",
+]
 
 
 def clean_header(value):
     if value is None:
         return ""
 
-    return (
+    return " ".join(
         str(value)
         .replace("\n", " ")
         .strip()
         .lower()
+        .split()
     )
+
+
+def get_recommendation(total):
+    return "Pass" if total >= 50 else "Fail"
 
 
 def get_headers(ws):
     headers = {}
 
-    for column in range(1, ws.max_column + 1):
-        value = ws.cell(8, column).value
-        header = clean_header(value)
+    for row_number in range(1, min(ws.max_row, 12) + 1):
+        for column in range(1, ws.max_column + 1):
+            value = clean_header(
+                ws.cell(row_number, column).value
+            )
 
-        if header:
-            headers[header] = column
+            if value:
+                headers[value] = (
+                    row_number,
+                    column,
+                )
 
-    return headers
+        if (
+            "matric number" in headers
+            or "matriculation number" in headers
+        ):
+            return row_number, headers
 
-
-def get_value(ws, headers, name):
-    column = headers.get(name)
-
-    if not column:
-        return None
-
-    return ws.cell(
-        ws._current_row,
-        column,
-    ).value
+    return None, {}
 
 
 @router.post("/excel")
@@ -88,6 +101,13 @@ async def import_excel(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+
+    if not file.filename:
+        raise HTTPException(
+            status_code=400,
+            detail="No file selected.",
+        )
+
     if not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -113,43 +133,47 @@ async def import_excel(
 
     for worksheet_name in workbook.sheetnames:
 
-        # Ignore non-programme sheets such as Index
-        if worksheet_name.strip().lower() == "index":
+        if worksheet_name.strip().lower() in {
+            "index",
+            "summary",
+            "contents",
+        }:
             continue
 
         ws = workbook[worksheet_name]
 
-        headers = get_headers(ws)
+        header_row, headers = get_headers(ws)
 
-        matric_column = None
-
-        for header, column in headers.items():
-            if header in (
-                "matric number",
-                "matriculation number",
-            ):
-                matric_column = column
-                break
-
-        if matric_column is None:
+        if header_row is None:
             skipped += 1
             continue
 
-        for row_number in range(9, ws.max_row + 1):
+        matric_header = (
+            "matric number"
+            if "matric number" in headers
+            else "matriculation number"
+        )
 
-            ws._current_row = row_number
+        matric_column = headers[matric_header][1]
 
-            matric = ws.cell(
+        for row_number in range(
+            header_row + 1,
+            ws.max_row + 1,
+        ):
+
+            matric_value = ws.cell(
                 row_number,
                 matric_column,
             ).value
 
-            # Empty row/student = skip
-            if matric is None or str(matric).strip() == "":
+            if (
+                matric_value is None
+                or str(matric_value).strip() == ""
+            ):
                 skipped += 1
                 continue
 
-            matric = str(matric).strip()
+            matric = str(matric_value).strip()
 
             try:
 
@@ -164,7 +188,7 @@ async def import_excel(
 
                 if not student:
                     errors.append(
-                        f"{worksheet_name} row {row_number}: "
+                        f"{worksheet_name}, row {row_number}: "
                         f"student {matric} does not exist in EMS."
                     )
                     continue
@@ -173,39 +197,131 @@ async def import_excel(
 
                 for excel_header, ems_field in COLUMN_ALIASES.items():
 
-                    if excel_header in headers:
+                    if excel_header not in headers:
+                        continue
 
-                        value = ws.cell(
-                            row_number,
-                            headers[excel_header],
-                        ).value
+                    if ems_field in {
+                        "matric_number",
+                        "full_name",
+                    }:
+                        continue
 
-                        if value is not None and ems_field not in (
-                            "matric_number",
-                            "full_name",
-                        ):
-                            scores[ems_field] = float(value)
+                    column = headers[excel_header][1]
 
-                # No assessment values = skip
-                if not scores:
-                    skipped += 1
+                    value = ws.cell(
+                        row_number,
+                        column,
+                    ).value
+
+                    if (
+                        value is None
+                        or str(value).strip() == ""
+                    ):
+                        continue
+
+                    try:
+                        scores[ems_field] = Decimal(
+                            str(value)
+                        )
+                    except Exception:
+                        errors.append(
+                            f"{worksheet_name}, row {row_number}: "
+                            f"invalid value '{value}' "
+                            f"for {excel_header}."
+                        )
+
+                # Leave rows with incomplete scores alone.
+                missing = [
+                    field
+                    for field in REQUIRED_SCORES
+                    if field not in scores
+                ]
+
+                if missing:
+                    errors.append(
+                        f"{worksheet_name}, row {row_number}: "
+                        f"missing scores: {', '.join(missing)}."
+                    )
+                    continue
+
+                total_score = sum(
+                    scores[field]
+                    for field in REQUIRED_SCORES
+                )
+
+                if total_score < 0 or total_score > 100:
+                    errors.append(
+                        f"{worksheet_name}, row {row_number}: "
+                        f"total score {total_score} is invalid."
+                    )
                     continue
 
                 assessment = Assessment(
                     student_id=student.id,
                     assessor_id=current_user.id,
-                    **scores,
+
+                    dressing_appearance=scores[
+                        "dressing_appearance"
+                    ],
+
+                    oral_presentation=scores[
+                        "oral_presentation"
+                    ],
+
+                    slide_presentation=scores[
+                        "slide_presentation"
+                    ],
+
+                    depth_of_understanding=scores[
+                        "depth_of_understanding"
+                    ],
+
+                    project_implementation=scores[
+                        "project_implementation"
+                    ],
+
+                    referencing_documentation=scores[
+                        "referencing_documentation"
+                    ],
+
+                    contribution_originality=scores[
+                        "contribution_originality"
+                    ],
+
+                    professional_conduct=scores[
+                        "professional_conduct"
+                    ],
+
+                    total_score=total_score,
+
+                    recommendation=get_recommendation(
+                        total_score
+                    ),
+
+                    remarks=None,
+                    is_deleted=False,
                 )
 
                 db.add(assessment)
                 imported += 1
 
             except Exception as exc:
+
                 errors.append(
-                    f"{worksheet_name} row {row_number}: {str(exc)}"
+                    f"{worksheet_name}, row {row_number}: "
+                    f"{str(exc)}"
                 )
 
-    db.commit()
+    try:
+        db.commit()
+
+    except Exception as exc:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Excel import failed: {str(exc)}",
+        )
 
     return {
         "message": "Excel import completed.",
