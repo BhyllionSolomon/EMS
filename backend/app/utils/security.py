@@ -1,82 +1,89 @@
-from datetime import datetime, timedelta, timezone
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy.orm import Session
 
-import bcrypt
-from jose import JWTError, jwt
-
-from app.core.config import settings
-
-
-def hash_password(password: str) -> str:
-    password_bytes = password.encode("utf-8")
-
-    if len(password_bytes) > 72:
-        raise ValueError("Password cannot be longer than 72 bytes.")
-
-    hashed = bcrypt.hashpw(
-        password_bytes,
-        bcrypt.gensalt(),
-    )
-
-    return hashed.decode("utf-8")
+from app.core.database import get_db
+from app.schemas.auth import LoginRequest, TokenResponse
+from app.services.auth_service import authenticate_user
+from app.utils.security import (
+    create_access_token,
+    decode_access_token,
+)
+from app.models.user import User
 
 
-def verify_password(
-    password: str,
-    password_hash: str,
-) -> bool:
-    password_bytes = password.encode("utf-8")
+router = APIRouter(
+    prefix="/auth",
+    tags=["Authentication"],
+)
 
-    if len(password_bytes) > 72:
-        return False
-
-    return bcrypt.checkpw(
-        password_bytes,
-        password_hash.encode("utf-8"),
-    )
+security = HTTPBearer()
 
 
-def create_access_token(
-    subject: str,
-    expires_minutes: int | None = None,
-) -> str:
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+):
+    token = credentials.credentials
 
-    expire_minutes = (
-        expires_minutes
-        if expires_minutes is not None
-        else settings.access_token_expire_minutes
-    )
+    user_id = decode_access_token(token)
 
-    expire = datetime.now(timezone.utc) + timedelta(
-        minutes=expire_minutes
-    )
-
-    payload = {
-        "sub": subject,
-        "exp": expire,
-    }
-
-    return jwt.encode(
-        payload,
-        settings.jwt_secret_key,
-        algorithm=settings.jwt_algorithm,
-    )
-
-
-def decode_access_token(token: str) -> str | None:
-
-    try:
-        payload = jwt.decode(
-            token,
-            settings.jwt_secret_key,
-            algorithms=[settings.jwt_algorithm],
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
         )
 
-        subject = payload.get("sub")
+    user = (
+        db.query(User)
+        .filter(
+            User.id == int(user_id),
+            User.is_deleted == False,
+        )
+        .first()
+    )
 
-        if not subject:
-            return None
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
 
-        return str(subject)
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User is inactive",
+        )
 
-    except JWTError:
-        return None
+    return user
+
+
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+)
+def login(
+    credentials: LoginRequest,
+    db: Session = Depends(get_db),
+):
+
+    user = authenticate_user(
+        db,
+        credentials.username,
+        credentials.password,
+    )
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password",
+        )
+
+    token = create_access_token(
+        subject=str(user.id)
+    )
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+    }
