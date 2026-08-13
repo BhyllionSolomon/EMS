@@ -21,6 +21,9 @@ import {
   ArrowLeft,
   Upload,
   FileSpreadsheet,
+  FileText,
+  UserPlus,
+  Trash2,
 } from "lucide-react";
 
 const API_URL = "https://ems-backend-app-2ju7.onrender.com";
@@ -273,6 +276,7 @@ function Dashboard({
   const [students, setStudents] = useState([]);
   const [assessments, setAssessments] = useState([]);
   const [users, setUsers] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -299,12 +303,14 @@ function Dashboard({
         axios.get(`${API_URL}/students/`, config),
         axios.get(`${API_URL}/assessments/`, config),
         axios.get(`${API_URL}/users/`, config),
+        axios.get(`${API_URL}/users/me`, config),
       ]);
 
       const [
         studentResult,
         assessmentResult,
         userResult,
+        meResult,
       ] = results;
 
       if (studentResult.status === "fulfilled") {
@@ -332,14 +338,24 @@ function Dashboard({
             "users"
           )
         );
+      } else {
+        // Non-admins get 403 here (the users list is admin-only) --
+        // that's expected, not a sign of an invalid session.
+        setUsers([]);
       }
 
+      if (meResult.status === "fulfilled") {
+        setCurrentUser(meResult.value.data);
+      }
+
+      // Only an expired/invalid token should force a logout. A 403 on
+      // an admin-only endpoint (like /users/) is a normal permission
+      // restriction for assessor/external_supervisor accounts, not an
+      // authentication failure.
       const unauthorized = results.some(
         (result) =>
           result.status === "rejected" &&
-          [401, 403].includes(
-            result.reason?.response?.status
-          )
+          result.reason?.response?.status === 401
       );
 
       if (unauthorized) {
@@ -514,12 +530,38 @@ function Dashboard({
           </button>
 
           <button
-            className="nav-item"
+            className={`nav-item ${
+              assessmentView === "report"
+                ? "active"
+                : ""
+            }`}
             type="button"
+            onClick={() => {
+              setAssessmentView("report");
+              setSidebarOpen(false);
+            }}
           >
-            <UserCog size={19} />
-            Users
+            <FileText size={19} />
+            Reports
           </button>
+
+          {currentUser?.role === "admin" && (
+            <button
+              className={`nav-item ${
+                assessmentView === "users"
+                  ? "active"
+                  : ""
+              }`}
+              type="button"
+              onClick={() => {
+                setAssessmentView("users");
+                setSidebarOpen(false);
+              }}
+            >
+              <UserCog size={19} />
+              Users
+            </button>
+          )}
 
           <button
             className="nav-item"
@@ -571,6 +613,12 @@ function Dashboard({
               ) : assessmentView ===
                 "import" ? (
                 <FileSpreadsheet size={25} />
+              ) : assessmentView ===
+                "report" ? (
+                <FileText size={25} />
+              ) : assessmentView ===
+                "users" ? (
+                <UserCog size={25} />
               ) : (
                 <BarChart3 size={25} />
               )}
@@ -587,6 +635,12 @@ function Dashboard({
                   : assessmentView ===
                     "import"
                   ? "Import Excel"
+                  : assessmentView ===
+                    "report"
+                  ? "Assessment Report"
+                  : assessmentView ===
+                    "users"
+                  ? "User Management"
                   : "Dashboard"}
               </h1>
 
@@ -600,6 +654,12 @@ function Dashboard({
                   : assessmentView ===
                     "import"
                   ? "Upload a grading sheet to score students in bulk"
+                  : assessmentView ===
+                    "report"
+                  ? "Aggregate internal & external scores per student"
+                  : assessmentView ===
+                    "users"
+                  ? "Create and manage assessor & supervisor accounts"
                   : "Assessment Management Overview"}
               </p>
             </div>
@@ -672,6 +732,21 @@ function Dashboard({
               token={token}
               onLogout={onLogout}
               onImported={handleAssessmentSaved}
+            />
+          ) : assessmentView ===
+            "report" ? (
+            <ReportView
+              token={token}
+              students={students}
+              onLogout={onLogout}
+            />
+          ) : assessmentView ===
+            "users" ? (
+            <AdminUsers
+              token={token}
+              users={users}
+              onLogout={onLogout}
+              onSaved={handleStudentSaved}
             />
           ) : (
             <>
@@ -2795,6 +2870,680 @@ function ImportExcel({ token, onLogout, onImported }) {
           )}
         </section>
       )}
+    </div>
+  );
+}
+
+/* =====================================================
+   REPORT VIEW
+===================================================== */
+
+function ReportView({ token, students, onLogout }) {
+  const [search, setSearch] = useState("");
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const searchInputRef = useRef(null);
+
+  const matchingStudents = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    if (!query) return [];
+
+    return students
+      .filter((student) => {
+        const name = getStudentName(student).toLowerCase();
+        const matric = getStudentMatric(student).toLowerCase();
+
+        return name.includes(query) || matric.includes(query);
+      })
+      .slice(0, 10);
+  }, [search, students]);
+
+  async function selectStudent(student) {
+    setSelectedStudent(student);
+    setSearch("");
+    setError("");
+    setReport(null);
+    setLoading(true);
+
+    try {
+      const response = await axios.get(
+        `${API_URL}/assessments/student/${student.id}/report`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      setReport(response.data);
+    } catch (err) {
+      console.error("REPORT ERROR:", err);
+
+      if ([401, 403].includes(err.response?.status)) {
+        onLogout();
+        return;
+      }
+
+      setError(
+        err.response?.data?.detail ||
+          "Unable to load the assessment report for this student."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function changeStudent() {
+    setSelectedStudent(null);
+    setSearch("");
+    setReport(null);
+    setError("");
+
+    requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+    });
+  }
+
+  return (
+    <div className="assessment-page-wrap">
+      <section className="ap-panel">
+        <div className="ap-panel-header">
+          <div>
+            <h2>Find Student</h2>
+
+            <p>
+              Search by name or matriculation number to view the
+              aggregate assessment report.
+            </p>
+          </div>
+
+          <FileText size={23} />
+        </div>
+
+        {!selectedStudent ? (
+          <div className="ap-search-wrap">
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Type student name or matric number..."
+              autoComplete="off"
+              autoFocus
+            />
+
+            {search.trim() && matchingStudents.length > 0 && (
+              <div className="ap-results">
+                {matchingStudents.map((student) => (
+                  <button
+                    key={student.id}
+                    type="button"
+                    className="ap-result"
+                    onClick={() => selectStudent(student)}
+                  >
+                    <div className="ap-result-icon">
+                      <Users size={18} />
+                    </div>
+
+                    <div className="ap-result-text">
+                      <strong>{getStudentName(student)}</strong>
+
+                      <span>
+                        {getStudentMatric(student)}
+
+                        {getStudentProgramme(student) &&
+                          ` · ${getStudentProgramme(student)}`}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {search.trim() && matchingStudents.length === 0 && (
+              <div className="ap-empty">No matching student found.</div>
+            )}
+          </div>
+        ) : (
+          <div className="ap-selected-student">
+            <div>
+              <span className="ap-selected-label">
+                VIEWING REPORT FOR
+              </span>
+
+              <h3>{getStudentName(selectedStudent)}</h3>
+
+              <div className="ap-selected-meta">
+                <span>
+                  Matric No: <strong>{getStudentMatric(selectedStudent)}</strong>
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="ap-secondary-button"
+              onClick={changeStudent}
+            >
+              Change Student
+            </button>
+          </div>
+        )}
+      </section>
+
+      {error && <div className="error">{error}</div>}
+
+      {selectedStudent && loading && (
+        <section className="panel">
+          <div className="empty-state">
+            <div className="loading-spinner" />
+            <p>Loading report...</p>
+          </div>
+        </section>
+      )}
+
+      {selectedStudent && !loading && report && (
+        <>
+          <section className="panel">
+            <div className="panel-header">
+              <div>
+                <h2>Internal Assessment Summary</h2>
+                <p>
+                  {report.status === "ready"
+                    ? "All required lecturer scores are in."
+                    : "Waiting for more lecturers to submit scores."}
+                </p>
+              </div>
+
+              <span
+                className={`badge ${
+                  report.status === "ready"
+                    ? "badge-success"
+                    : ""
+                }`}
+              >
+                {report.status === "ready" ? "Ready" : "Pending"}
+              </span>
+            </div>
+
+            <div className="summary-row">
+              <div className="summary-item">
+                <ClipboardCheck size={22} />
+                <span>Scores Submitted</span>
+                <strong>
+                  {report.internal_assessments_submitted}/
+                  {report.internal_assessments_required}
+                </strong>
+              </div>
+
+              <div className="summary-item">
+                <BarChart3 size={22} />
+                <span>Internal Average</span>
+                <strong>
+                  {report.internal_average_total != null
+                    ? Number(report.internal_average_total).toFixed(2)
+                    : "—"}
+                </strong>
+              </div>
+
+              <div className="summary-item">
+                <CheckCircle size={22} />
+                <span>Recommendation</span>
+                <strong>
+                  <RecommendationBadge
+                    value={report.internal_recommendation}
+                  />
+                </strong>
+              </div>
+            </div>
+
+            {report.areas_to_improve &&
+              report.areas_to_improve.length > 0 && (
+                <div className="overview-list">
+                  <span
+                    style={{
+                      display: "block",
+                      marginBottom: "10px",
+                      fontWeight: 650,
+                      fontSize: "13px",
+                    }}
+                  >
+                    Areas to Improve
+                  </span>
+
+                  {report.areas_to_improve.map((area, index) => (
+                    <div key={index}>
+                      <span>{area}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+          </section>
+
+          <section className="panel" style={{ marginTop: "22px" }}>
+            <div className="panel-header">
+              <div>
+                <h2>Lecturer Remarks</h2>
+                <p>Comments from each lecturer who has scored this student.</p>
+              </div>
+            </div>
+
+            {report.lecturer_comments &&
+            report.lecturer_comments.length > 0 ? (
+              <div className="overview-list">
+                {report.lecturer_comments.map((comment, index) => (
+                  <div key={index}>
+                    <span>{comment.lecturer_name}</span>
+                    <strong style={{ fontSize: "13px", fontWeight: 500 }}>
+                      {comment.remarks}
+                    </strong>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">
+                <p>No remarks left yet.</p>
+              </div>
+            )}
+          </section>
+
+          <section className="panel" style={{ marginTop: "22px" }}>
+            <div className="panel-header">
+              <div>
+                <h2>External Supervisor</h2>
+                <p>
+                  {report.status === "ready"
+                    ? "Final-stage score from the external supervisor."
+                    : "Unlocks once all internal scores are submitted."}
+                </p>
+              </div>
+            </div>
+
+            {report.external_assessment ? (
+              <div className="summary-row">
+                <div className="summary-item">
+                  <BarChart3 size={22} />
+                  <span>External Score</span>
+                  <strong>
+                    {Number(
+                      report.external_assessment.total_score
+                    ).toFixed(2)}
+                  </strong>
+                </div>
+
+                <div className="summary-item">
+                  <CheckCircle size={22} />
+                  <span>Recommendation</span>
+                  <strong>
+                    <RecommendationBadge
+                      value={report.external_assessment.recommendation}
+                    />
+                  </strong>
+                </div>
+              </div>
+            ) : (
+              <div className="empty-state">
+                <p>No external supervisor score yet.</p>
+              </div>
+            )}
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* =====================================================
+   ADMIN: USER MANAGEMENT
+===================================================== */
+
+const EMPTY_USER_FORM = {
+  username: "",
+  password: "",
+  full_name: "",
+  role: "assessor",
+};
+
+const USER_ROLES = [
+  { value: "assessor", label: "Assessor (Lecturer)" },
+  { value: "external_supervisor", label: "External Supervisor" },
+  { value: "admin", label: "Administrator" },
+];
+
+function AdminUsers({ token, users, onLogout, onSaved }) {
+  const [mode, setMode] = useState("list");
+  const [form, setForm] = useState(EMPTY_USER_FORM);
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  function openAddUser() {
+    setForm(EMPTY_USER_FORM);
+    setError("");
+    setSuccess("");
+    setMode("add");
+  }
+
+  function handleChange(event) {
+    const { name, value } = event.target;
+
+    setForm((current) => ({
+      ...current,
+      [name]: value,
+    }));
+  }
+
+  async function saveUser(event) {
+    event.preventDefault();
+
+    if (saving) return;
+
+    setError("");
+    setSuccess("");
+
+    if (!form.username.trim() || !form.password || !form.full_name.trim()) {
+      setError("Please complete all fields.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const response = await axios.post(
+        `${API_URL}/users/`,
+        {
+          username: form.username.trim(),
+          password: form.password,
+          full_name: form.full_name.trim(),
+          role: form.role,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      setSuccess(`${response.data.full_name} has been added successfully.`);
+
+      await onSaved();
+
+      setForm(EMPTY_USER_FORM);
+
+      setTimeout(() => {
+        setMode("list");
+        setSuccess("");
+      }, 1200);
+    } catch (err) {
+      console.error("USER SAVE ERROR:", err);
+
+      if ([401, 403].includes(err.response?.status)) {
+        onLogout();
+        return;
+      }
+
+      const detail = err.response?.data?.detail;
+
+      if (Array.isArray(detail)) {
+        setError(detail.map((item) => item.msg).join(", "));
+      } else {
+        setError(detail || "Unable to create user.");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(user) {
+    if (deletingId) return;
+
+    if (
+      !window.confirm(
+        `Remove ${user.full_name} (${user.username})? This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+
+    setError("");
+
+    try {
+      setDeletingId(user.id);
+
+      await axios.delete(`${API_URL}/users/${user.id}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      await onSaved();
+    } catch (err) {
+      console.error("USER DELETE ERROR:", err);
+
+      if ([401, 403].includes(err.response?.status)) {
+        onLogout();
+        return;
+      }
+
+      setError(err.response?.data?.detail || "Unable to remove user.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  if (mode === "add") {
+    return (
+      <div className="student-page">
+        <div className="student-page-header">
+          <div>
+            <button
+              type="button"
+              className="ap-secondary-button"
+              onClick={() => setMode("list")}
+            >
+              <ArrowLeft size={16} />
+              Back
+            </button>
+          </div>
+        </div>
+
+        <form onSubmit={saveUser}>
+          <section className="panel">
+            <div className="panel-header">
+              <div>
+                <h2>New User</h2>
+                <p>
+                  Create a lecturer (assessor), external supervisor, or
+                  admin account.
+                </p>
+              </div>
+
+              <UserPlus size={23} />
+            </div>
+
+            {error && <div className="error">{error}</div>}
+            {success && (
+              <div className="success">
+                <CheckCircle size={18} />
+                {success}
+              </div>
+            )}
+
+            <div className="student-form-grid">
+              <div className="input-group">
+                <label>Full Name</label>
+                <input
+                  name="full_name"
+                  value={form.full_name}
+                  onChange={handleChange}
+                  placeholder="Enter full name"
+                />
+              </div>
+
+              <div className="input-group">
+                <label>Username</label>
+                <input
+                  name="username"
+                  value={form.username}
+                  onChange={handleChange}
+                  placeholder="Enter username"
+                  autoComplete="off"
+                />
+              </div>
+
+              <div className="input-group">
+                <label>Password</label>
+                <input
+                  type="password"
+                  name="password"
+                  value={form.password}
+                  onChange={handleChange}
+                  placeholder="Enter password"
+                  autoComplete="new-password"
+                />
+              </div>
+
+              <div className="input-group">
+                <label>Role</label>
+                <select
+                  name="role"
+                  value={form.role}
+                  onChange={handleChange}
+                >
+                  {USER_ROLES.map((role) => (
+                    <option key={role.value} value={role.value}>
+                      {role.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </section>
+
+          <div className="student-form-actions">
+            <button
+              type="button"
+              className="ap-secondary-button"
+              onClick={() => setMode("list")}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+
+            <button
+              type="submit"
+              className="ap-save-button"
+              disabled={saving}
+            >
+              {saving ? (
+                <>
+                  <span className="spinner" />
+                  Saving User...
+                </>
+              ) : (
+                <>
+                  <Save size={18} />
+                  Save User
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    );
+  }
+
+  return (
+    <div className="student-page">
+      <div className="student-page-header">
+        <div>
+          <h2>Users</h2>
+          <p>Manage assessor, external supervisor, and admin accounts.</p>
+        </div>
+
+        <button
+          type="button"
+          className="ap-save-button"
+          onClick={openAddUser}
+        >
+          <UserPlus size={18} />
+          Add User
+        </button>
+      </div>
+
+      {error && <div className="error">{error}</div>}
+
+      <section className="panel">
+        {users.length === 0 ? (
+          <div className="empty-state">
+            <UserCog size={35} />
+            <h3>No users yet</h3>
+            <p>Click Add User to create the first account.</p>
+          </div>
+        ) : (
+          <div className="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Full Name</th>
+                  <th>Username</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {users.map((user) => (
+                  <tr key={user.id}>
+                    <td>
+                      <strong>{user.full_name}</strong>
+                    </td>
+
+                    <td>{user.username}</td>
+
+                    <td>
+                      {USER_ROLES.find((role) => role.value === user.role)
+                        ?.label || user.role}
+                    </td>
+
+                    <td>
+                      <span
+                        className={`badge ${
+                          user.is_active ? "badge-success" : "badge-danger"
+                        }`}
+                      >
+                        {user.is_active ? "Active" : "Inactive"}
+                      </span>
+                    </td>
+
+                    <td>
+                      <button
+                        type="button"
+                        className="ap-secondary-button"
+                        onClick={() => handleDelete(user)}
+                        disabled={deletingId === user.id}
+                      >
+                        {deletingId === user.id ? (
+                          <span className="spinner" />
+                        ) : (
+                          <Trash2 size={15} />
+                        )}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
   );
 }
