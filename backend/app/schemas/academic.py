@@ -57,6 +57,7 @@ class SessionCreate(BaseModel):
 class SessionResponse(BaseModel):
     id: int
     name: str
+    is_current: bool
 
     class Config:
         from_attributes = True
