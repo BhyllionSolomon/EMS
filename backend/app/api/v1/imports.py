@@ -161,6 +161,7 @@ async def import_excel(
     imported = 0
     skipped = 0
     errors = []
+    imported_students = []
 
     for sheet_name in workbook.sheetnames:
 
@@ -267,6 +268,13 @@ async def import_excel(
 
                 imported += 1
 
+                imported_students.append(
+                    {
+                        "matric_number": student.matric_number,
+                        "full_name": student.full_name,
+                    }
+                )
+
             except ValidationError as exc:
                 errors.append(
                     f"{sheet_name}, row {row_number}: "
@@ -285,4 +293,6 @@ async def import_excel(
         "imported": imported,
         "skipped": skipped,
         "errors": errors,
+        "assessor_name": current_user.full_name,
+        "imported_students": imported_students,
     }
