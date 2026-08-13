@@ -7,7 +7,7 @@ class UserCreate(BaseModel):
     username: str
     password: str
     full_name: str
-    role: Literal["admin", "assessor"] = "assessor"
+    role: Literal["admin", "assessor", "external_supervisor"] = "assessor"
 
 
 class UserResponse(BaseModel):
