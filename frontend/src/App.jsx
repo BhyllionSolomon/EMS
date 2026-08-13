@@ -19,6 +19,8 @@ import {
   Plus,
   Search,
   ArrowLeft,
+  Upload,
+  FileSpreadsheet,
 } from "lucide-react";
 
 const API_URL = "https://ems-backend-app-2ju7.onrender.com";
@@ -31,14 +33,14 @@ const THEMES = [
 ];
 
 const RUBRIC_FIELDS = [
-  { key: "dressing_appearance", label: "Dressing & Appearance", maximum: 10 },
-  { key: "oral_presentation", label: "Oral Presentation", maximum: 10 },
-  { key: "slide_presentation", label: "Slide Presentation", maximum: 10 },
-  { key: "depth_of_understanding", label: "Depth of Understanding", maximum: 15 },
-  { key: "project_implementation", label: "Project Implementation", maximum: 15 },
-  { key: "referencing_documentation", label: "Referencing & Documentation", maximum: 15 },
-  { key: "contribution_originality", label: "Contribution & Originality", maximum: 15 },
-  { key: "professional_conduct", label: "Professional Conduct", maximum: 10 },
+  { key: "dress", label: "Dress & Appearance", maximum: 10 },
+  { key: "report_format", label: "Report Format", maximum: 10 },
+  { key: "problem_solved", label: "Problem Solved", maximum: 15 },
+  { key: "clarity_of_writeup", label: "Clarity of Write-up", maximum: 10 },
+  { key: "result_presentation", label: "Result Presentation", maximum: 15 },
+  { key: "evidence_of_understanding", label: "Evidence of Understanding", maximum: 10 },
+  { key: "knowledge_contribution", label: "Knowledge Contribution", maximum: 15 },
+  { key: "reference", label: "Reference", maximum: 15 },
 ];
 
 const MAXIMUM_TOTAL = RUBRIC_FIELDS.reduce(
@@ -496,6 +498,22 @@ function Dashboard({
           </button>
 
           <button
+            className={`nav-item ${
+              assessmentView === "import"
+                ? "active"
+                : ""
+            }`}
+            type="button"
+            onClick={() => {
+              setAssessmentView("import");
+              setSidebarOpen(false);
+            }}
+          >
+            <Upload size={19} />
+            Import Excel
+          </button>
+
+          <button
             className="nav-item"
             type="button"
           >
@@ -550,6 +568,9 @@ function Dashboard({
               ) : assessmentView ===
                 "students" ? (
                 <Users size={25} />
+              ) : assessmentView ===
+                "import" ? (
+                <FileSpreadsheet size={25} />
               ) : (
                 <BarChart3 size={25} />
               )}
@@ -563,6 +584,9 @@ function Dashboard({
                   : assessmentView ===
                     "students"
                   ? "Student Management"
+                  : assessmentView ===
+                    "import"
+                  ? "Import Excel"
                   : "Dashboard"}
               </h1>
 
@@ -573,6 +597,9 @@ function Dashboard({
                   : assessmentView ===
                     "students"
                   ? "Register and manage students"
+                  : assessmentView ===
+                    "import"
+                  ? "Upload a grading sheet to score students in bulk"
                   : "Assessment Management Overview"}
               </p>
             </div>
@@ -638,6 +665,13 @@ function Dashboard({
               onSaved={
                 handleAssessmentSaved
               }
+            />
+          ) : assessmentView ===
+            "import" ? (
+            <ImportExcel
+              token={token}
+              onLogout={onLogout}
+              onImported={handleAssessmentSaved}
             />
           ) : (
             <>
@@ -2063,48 +2097,14 @@ function AssessmentPage({
     }
 
     const payload = {
-      student_id:
-        selectedStudent.id,
+      student_id: selectedStudent.id,
 
-      dressing_appearance:
-        Number(
-          scores.dressing_appearance
-        ),
-
-      oral_presentation:
-        Number(
-          scores.oral_presentation
-        ),
-
-      slide_presentation:
-        Number(
-          scores.slide_presentation
-        ),
-
-      depth_of_understanding:
-        Number(
-          scores.depth_of_understanding
-        ),
-
-      project_implementation:
-        Number(
-          scores.project_implementation
-        ),
-
-      referencing_documentation:
-        Number(
-          scores.referencing_documentation
-        ),
-
-      contribution_originality:
-        Number(
-          scores.contribution_originality
-        ),
-
-      professional_conduct:
-        Number(
-          scores.professional_conduct
-        ),
+      ...Object.fromEntries(
+        RUBRIC_FIELDS.map((item) => [
+          item.key,
+          Number(scores[item.key]),
+        ])
+      ),
 
       remarks:
         remarks.trim() || null,
@@ -2590,6 +2590,216 @@ function AssessmentPage({
 }
 
 /* =====================================================
+   IMPORT EXCEL
+===================================================== */
+
+function ImportExcel({ token, onLogout, onImported }) {
+  const [file, setFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState(null);
+
+  const fileInputRef = useRef(null);
+
+  function handleFileChange(event) {
+    const selected = event.target.files?.[0] || null;
+    setFile(selected);
+    setError("");
+    setResult(null);
+  }
+
+  function resetForm() {
+    setFile(null);
+    setResult(null);
+    setError("");
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
+  async function handleUpload(event) {
+    event.preventDefault();
+
+    if (!file) {
+      setError("Please choose an .xlsx file first.");
+      return;
+    }
+
+    if (!file.name.toLowerCase().endsWith(".xlsx")) {
+      setError("Only .xlsx Excel files are supported.");
+      return;
+    }
+
+    setUploading(true);
+    setError("");
+    setResult(null);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const response = await axios.post(
+        `${API_URL}/imports/excel`,
+        formData,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
+
+      setResult(response.data);
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+
+      setFile(null);
+
+      await onImported(
+        `Import complete: ${response.data.imported} score(s) saved, ` +
+          `${response.data.skipped} row(s) skipped.`
+      );
+    } catch (err) {
+      console.error("IMPORT ERROR:", err);
+
+      if ([401, 403].includes(err.response?.status)) {
+        onLogout();
+        return;
+      }
+
+      const detail = err.response?.data?.detail;
+
+      if (Array.isArray(detail)) {
+        setError(detail.map((item) => item.msg).join(", "));
+      } else {
+        setError(detail || "Unable to import the Excel file.");
+      }
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="assessment-page-wrap">
+      <section className="ap-panel">
+        <div className="ap-panel-header">
+          <div>
+            <h2>Upload Grading Sheet</h2>
+
+            <p>
+              Upload the .xlsx aggregate score sheet. Each sheet's
+              "MATRIC NUMBER" column is matched against existing
+              students, and the scores are saved as your own
+              assessment for each matched student. Students must
+              already be registered in EMS -- this does not create
+              new students.
+            </p>
+          </div>
+
+          <FileSpreadsheet size={23} />
+        </div>
+
+        {error && <div className="error">{error}</div>}
+
+        <form onSubmit={handleUpload} className="import-form">
+          <label className="import-dropzone">
+            <Upload size={28} />
+
+            <span className="import-dropzone-title">
+              {file ? file.name : "Click to choose an .xlsx file"}
+            </span>
+
+            <span className="import-dropzone-hint">
+              Only .xlsx files are supported
+            </span>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx"
+              onChange={handleFileChange}
+              hidden
+            />
+          </label>
+
+          <div className="ap-actions">
+            <button
+              type="button"
+              className="ap-secondary-button"
+              onClick={resetForm}
+              disabled={uploading || (!file && !result)}
+            >
+              Clear
+            </button>
+
+            <button
+              type="submit"
+              className="ap-save-button"
+              disabled={uploading || !file}
+            >
+              {uploading ? (
+                <>
+                  <span className="spinner" />
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <Upload size={18} />
+                  Upload & Import
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      </section>
+
+      {result && (
+        <section className="ap-panel">
+          <div className="ap-panel-header">
+            <div>
+              <h2>Import Results</h2>
+              <p>Summary of the last upload.</p>
+            </div>
+          </div>
+
+          <div className="ap-preview-row">
+            <div>
+              <span>Imported</span>
+              <strong>{result.imported}</strong>
+            </div>
+
+            <div>
+              <span>Skipped</span>
+              <strong>{result.skipped}</strong>
+            </div>
+
+            <div>
+              <span>Errors</span>
+              <strong>{result.errors?.length || 0}</strong>
+            </div>
+          </div>
+
+          {result.errors && result.errors.length > 0 && (
+            <div className="import-errors">
+              <h3>Row Errors</h3>
+
+              <ul>
+                {result.errors.map((message, index) => (
+                  <li key={index}>{message}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
+    </div>
+  );
+}
+
+/* =====================================================
    HELPERS
 ===================================================== */
 
@@ -2811,6 +3021,61 @@ function RecommendationBadge({
 ===================================================== */
 
 const ASSESSMENT_STYLES = `
+.import-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.import-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  padding: 2.5rem 1rem;
+  border: 2px dashed var(--border-color, #d1d5db);
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: center;
+  color: var(--text-muted, #6b7280);
+}
+
+.import-dropzone:hover {
+  background: var(--hover-bg, #f5f7fb);
+}
+
+.import-dropzone-title {
+  font-weight: 600;
+  color: inherit;
+}
+
+.import-dropzone-hint {
+  font-size: .78rem;
+}
+
+.import-errors {
+  margin-top: 1rem;
+}
+
+.import-errors h3 {
+  margin: 0 0 .5rem;
+  font-size: .9rem;
+}
+
+.import-errors ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  max-height: 260px;
+  overflow-y: auto;
+  font-size: .82rem;
+  color: var(--text-muted, #6b7280);
+}
+
+.import-errors li {
+  margin-bottom: .3rem;
+}
+
 .assessment-page-wrap,
 .student-page {
   display: flex;
