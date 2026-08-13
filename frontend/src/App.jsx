@@ -564,11 +564,19 @@ function Dashboard({
           )}
 
           <button
-            className="nav-item"
+            className={`nav-item ${
+              assessmentView === "sessions"
+                ? "active"
+                : ""
+            }`}
             type="button"
+            onClick={() => {
+              setAssessmentView("sessions");
+              setSidebarOpen(false);
+            }}
           >
             <BookOpen size={19} />
-            Academic
+            Sessions
           </button>
         </nav>
 
@@ -619,6 +627,9 @@ function Dashboard({
               ) : assessmentView ===
                 "users" ? (
                 <UserCog size={25} />
+              ) : assessmentView ===
+                "sessions" ? (
+                <BookOpen size={25} />
               ) : (
                 <BarChart3 size={25} />
               )}
@@ -641,6 +652,9 @@ function Dashboard({
                   : assessmentView ===
                     "users"
                   ? "User Management"
+                  : assessmentView ===
+                    "sessions"
+                  ? "Academic Sessions"
                   : "Dashboard"}
               </h1>
 
@@ -660,6 +674,9 @@ function Dashboard({
                   : assessmentView ===
                     "users"
                   ? "Create and manage assessor & supervisor accounts"
+                  : assessmentView ===
+                    "sessions"
+                  ? "Browse students with results by academic session"
                   : "Assessment Management Overview"}
               </p>
             </div>
@@ -732,6 +749,7 @@ function Dashboard({
               token={token}
               onLogout={onLogout}
               onImported={handleAssessmentSaved}
+              currentUser={currentUser}
             />
           ) : assessmentView ===
             "report" ? (
@@ -747,6 +765,14 @@ function Dashboard({
               users={users}
               onLogout={onLogout}
               onSaved={handleStudentSaved}
+            />
+          ) : assessmentView ===
+            "sessions" ? (
+            <SessionsView
+              token={token}
+              students={students}
+              assessments={assessments}
+              onLogout={onLogout}
             />
           ) : (
             <>
@@ -2668,7 +2694,7 @@ function AssessmentPage({
    IMPORT EXCEL
 ===================================================== */
 
-function ImportExcel({ token, onLogout, onImported }) {
+function ImportExcel({ token, onLogout, onImported, currentUser }) {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
@@ -2836,9 +2862,27 @@ function ImportExcel({ token, onLogout, onImported }) {
           <div className="ap-panel-header">
             <div>
               <h2>Import Results</h2>
-              <p>Summary of the last upload.</p>
+              <p>
+                Summary of the last upload -- every score below has
+                been saved to the database.
+              </p>
             </div>
           </div>
+
+          {result.imported > 0 && (
+            <div className="success">
+              <CheckCircle size={18} />
+              {result.imported} score
+              {result.imported === 1 ? "" : "s"} saved to the database,
+              recorded under{" "}
+              <strong>
+                {result.assessor_name ||
+                  currentUser?.full_name ||
+                  "your account"}
+              </strong>
+              .
+            </div>
+          )}
 
           <div className="ap-preview-row">
             <div>
@@ -2856,6 +2900,37 @@ function ImportExcel({ token, onLogout, onImported }) {
               <strong>{result.errors?.length || 0}</strong>
             </div>
           </div>
+
+          {result.imported_students &&
+            result.imported_students.length > 0 && (
+              <div className="table-container">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Student Name</th>
+                      <th>Matric Number</th>
+                      <th>Assessor</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {result.imported_students.map((student, index) => (
+                      <tr key={index}>
+                        <td>
+                          <strong>{student.full_name}</strong>
+                        </td>
+                        <td>{student.matric_number}</td>
+                        <td>
+                          {result.assessor_name ||
+                            currentUser?.full_name ||
+                            "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
           {result.errors && result.errors.length > 0 && (
             <div className="import-errors">
@@ -3544,6 +3619,249 @@ function AdminUsers({ token, users, onLogout, onSaved }) {
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+/* =====================================================
+   SESSIONS VIEW
+===================================================== */
+
+function SessionsView({ token, students, assessments, onLogout }) {
+  const [sessions, setSessions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [selectedSession, setSelectedSession] = useState(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadSessions() {
+      setLoading(true);
+      setError("");
+
+      try {
+        const response = await axios.get(`${API_URL}/sessions/`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (!isMounted) return;
+
+        setSessions(extractArray(response.data, "sessions"));
+      } catch (err) {
+        console.error("SESSIONS ERROR:", err);
+
+        if (!isMounted) return;
+
+        if ([401, 403].includes(err.response?.status)) {
+          onLogout();
+          return;
+        }
+
+        setError("Unable to load academic sessions.");
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    }
+
+    loadSessions();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [token]);
+
+  const assessmentsByStudent = useMemo(() => {
+    const map = new Map();
+
+    assessments.forEach((record) => {
+      const list = map.get(record.student_id) || [];
+      list.push(record);
+      map.set(record.student_id, list);
+    });
+
+    return map;
+  }, [assessments]);
+
+  function getSessionId(student) {
+    if (
+      typeof student.academic_session === "object" &&
+      student.academic_session
+    ) {
+      return student.academic_session.id;
+    }
+
+    return student.academic_session_id;
+  }
+
+  const studentsWithResults = useMemo(() => {
+    if (!selectedSession) return [];
+
+    return students.filter((student) => {
+      if (getSessionId(student) !== selectedSession.id) return false;
+
+      const records = assessmentsByStudent.get(student.id) || [];
+
+      return records.length > 0;
+    });
+  }, [students, selectedSession, assessmentsByStudent]);
+
+  function summarizeStudent(student) {
+    const records = assessmentsByStudent.get(student.id) || [];
+
+    const internal = records.filter(
+      (record) => record.assessment_type === "internal"
+    );
+
+    const external = records.find(
+      (record) => record.assessment_type === "external"
+    );
+
+    const average =
+      internal.length > 0
+        ? internal.reduce(
+            (sum, record) => sum + Number(record.total_score || 0),
+            0
+          ) / internal.length
+        : null;
+
+    return {
+      internalCount: internal.length,
+      average,
+      external,
+    };
+  }
+
+  return (
+    <div className="assessment-page-wrap">
+      <section className="ap-panel">
+        <div className="ap-panel-header">
+          <div>
+            <h2>Academic Sessions</h2>
+
+            <p>
+              Select a session to see which students already have
+              assessment results recorded.
+            </p>
+          </div>
+
+          <BookOpen size={23} />
+        </div>
+
+        {loading ? (
+          <div className="empty-state">
+            <div className="loading-spinner" />
+            <p>Loading sessions...</p>
+          </div>
+        ) : error ? (
+          <div className="error">{error}</div>
+        ) : sessions.length === 0 ? (
+          <div className="empty-state">
+            <BookOpen size={35} />
+            <h3>No academic sessions yet</h3>
+            <p>Sessions are created when students are registered.</p>
+          </div>
+        ) : (
+          <div className="session-chip-row">
+            {sessions.map((session) => (
+              <button
+                key={session.id}
+                type="button"
+                className={`session-chip ${
+                  selectedSession?.id === session.id ? "active" : ""
+                }`}
+                onClick={() => setSelectedSession(session)}
+              >
+                {session.name}
+
+                {session.is_current && (
+                  <span className="badge badge-success">Current</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {selectedSession && (
+        <section className="panel" style={{ marginTop: "22px" }}>
+          <div className="panel-header">
+            <div>
+              <h2>{selectedSession.name} -- Students With Results</h2>
+
+              <p>
+                {studentsWithResults.length} student
+                {studentsWithResults.length === 1 ? "" : "s"} have at
+                least one score recorded so far.
+              </p>
+            </div>
+          </div>
+
+          {studentsWithResults.length === 0 ? (
+            <div className="empty-state">
+              <Users size={35} />
+              <h3>No results yet</h3>
+              <p>
+                No student in {selectedSession.name} has been scored
+                yet.
+              </p>
+            </div>
+          ) : (
+            <div className="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Matric Number</th>
+                    <th>Programme</th>
+                    <th>Internal Scores</th>
+                    <th>Avg Score</th>
+                    <th>External</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {studentsWithResults.map((student) => {
+                    const summary = summarizeStudent(student);
+
+                    return (
+                      <tr key={student.id}>
+                        <td>
+                          <strong>{getStudentName(student)}</strong>
+                        </td>
+
+                        <td>{getStudentMatric(student)}</td>
+
+                        <td>{getStudentProgramme(student) || "—"}</td>
+
+                        <td>{summary.internalCount}/4</td>
+
+                        <td>
+                          {summary.average != null
+                            ? summary.average.toFixed(2)
+                            : "—"}
+                        </td>
+
+                        <td>
+                          {summary.external ? (
+                            <RecommendationBadge
+                              value={summary.external.recommendation}
+                            />
+                          ) : (
+                            <span className="badge">Pending</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }
@@ -4248,6 +4566,42 @@ const ASSESSMENT_STYLES = `
   .ap-live-total {
     text-align: left;
   }
+}
+
+.session-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.session-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color, #d1d5db);
+  background: var(--surface, #fff);
+  color: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.session-chip:hover {
+  background: var(--hover-bg, #f5f7fb);
+}
+
+.session-chip.active {
+  background: var(--accent, #6d28d9);
+  border-color: var(--accent, #6d28d9);
+  color: #fff;
+}
+
+.session-chip .badge {
+  padding: 2px 8px;
+  font-size: 11px;
 }
 `;
 
