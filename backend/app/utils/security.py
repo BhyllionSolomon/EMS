@@ -1,89 +1,55 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.orm import Session
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 
-from app.core.database import get_db
-from app.schemas.auth import LoginRequest, TokenResponse
-from app.services.auth_service import authenticate_user
-from app.utils.security import (
-    create_access_token,
-    decode_access_token,
-)
-from app.models.user import User
+import bcrypt
+from jose import JWTError, jwt
+
+from app.core.config import settings
 
 
-router = APIRouter(
-    prefix="/auth",
-    tags=["Authentication"],
-)
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(
+        password.encode("utf-8"),
+        bcrypt.gensalt(),
+    ).decode("utf-8")
 
-security = HTTPBearer()
 
-
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db),
-):
-    token = credentials.credentials
-
-    user_id = decode_access_token(token)
-
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-        )
-
-    user = (
-        db.query(User)
-        .filter(
-            User.id == int(user_id),
-            User.is_deleted == False,
-        )
-        .first()
+def verify_password(
+    plain_password: str,
+    hashed_password: str,
+) -> bool:
+    return bcrypt.checkpw(
+        plain_password.encode("utf-8"),
+        hashed_password.encode("utf-8"),
     )
 
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found",
-        )
 
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User is inactive",
-        )
-
-    return user
-
-
-@router.post(
-    "/login",
-    response_model=TokenResponse,
-)
-def login(
-    credentials: LoginRequest,
-    db: Session = Depends(get_db),
-):
-
-    user = authenticate_user(
-        db,
-        credentials.username,
-        credentials.password,
+def create_access_token(subject: str) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(
+        minutes=settings.access_token_expire_minutes
     )
 
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password",
-        )
-
-    token = create_access_token(
-        subject=str(user.id)
-    )
-
-    return {
-        "access_token": token,
-        "token_type": "bearer",
+    to_encode = {
+        "sub": subject,
+        "exp": expire,
     }
+
+    return jwt.encode(
+        to_encode,
+        settings.jwt_secret_key,
+        algorithm=settings.jwt_algorithm,
+    )
+
+
+def decode_access_token(token: str) -> Optional[str]:
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm],
+        )
+
+        return payload.get("sub")
+
+    except JWTError:
+        return None
