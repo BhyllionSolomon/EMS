@@ -3,18 +3,21 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.auth_dependency import get_current_user
+from app.core.role_dependency import require_role
 
 from app.schemas.assessment import (
     AssessmentCreate,
     AssessmentResponse,
+    StudentAssessmentReport,
 )
 
 from app.services.assessment_service import (
-    create_assessment,
+    create_or_update_assessment,
     delete_assessment,
     get_all_assessments,
     get_assessment,
     get_student_assessments,
+    get_student_report,
 )
 
 
@@ -45,16 +48,55 @@ def create(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """
+    Submit or update one of the (up to 4) internal lecturer scores for a
+    student. Calling this again for the same student simply updates the
+    calling lecturer's own previous score.
+    """
+
     try:
-        return create_assessment(
+        return create_or_update_assessment(
             db=db,
             assessment_data=assessment,
             assessor_id=current_user.id,
+            assessment_type="internal",
         )
 
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+
+
+@router.post(
+    "/external",
+    response_model=AssessmentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_external(
+    assessment: AssessmentCreate,
+    db: Session = Depends(get_db),
+    current_user=Depends(
+        require_role("admin", "external_supervisor")
+    ),
+):
+    """
+    Submit or update the external supervisor's final-stage score.
+    Only allowed once all 4 internal lecturer assessments are in.
+    """
+
+    try:
+        return create_or_update_assessment(
+            db=db,
+            assessment_data=assessment,
+            assessor_id=current_user.id,
+            assessment_type="external",
+        )
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
 
@@ -68,10 +110,7 @@ def read_one(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    assessment = get_assessment(
-        db,
-        assessment_id,
-    )
+    assessment = get_assessment(db, assessment_id)
 
     if not assessment:
         raise HTTPException(
@@ -91,10 +130,26 @@ def read_student_assessments(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return get_student_assessments(
-        db,
-        student_id,
-    )
+    return get_student_assessments(db, student_id)
+
+
+@router.get(
+    "/student/{student_id}/report",
+    response_model=StudentAssessmentReport,
+)
+def read_student_report(
+    student_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """
+    Aggregate report: once all 4 lecturers have scored a student, this
+    returns the averaged score, recommendation, auto-generated areas to
+    improve, and each lecturer's remarks -- everything the student needs
+    before facing the external supervisor.
+    """
+
+    return get_student_report(db, student_id)
 
 
 @router.delete(
@@ -106,10 +161,7 @@ def delete(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    assessment = delete_assessment(
-        db,
-        assessment_id,
-    )
+    assessment = delete_assessment(db, assessment_id)
 
     if not assessment:
         raise HTTPException(
