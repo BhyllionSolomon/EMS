@@ -1,7 +1,14 @@
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import Boolean, ForeignKey, Numeric, String, Text
+from sqlalchemy import (
+    Boolean,
+    ForeignKey,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -9,6 +16,17 @@ from app.models.base import Base, TimestampMixin
 
 class Assessment(Base, TimestampMixin):
     __tablename__ = "assessments"
+    __table_args__ = (
+        # One score per (student, assessor, stage). A lecturer or the
+        # external supervisor re-submitting for the same student updates
+        # their existing row instead of creating a duplicate.
+        UniqueConstraint(
+            "student_id",
+            "assessor_id",
+            "assessment_type",
+            name="uq_assessment_student_assessor_type",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
@@ -22,35 +40,44 @@ class Assessment(Base, TimestampMixin):
         nullable=False,
     )
 
-    dressing_appearance: Mapped[Decimal] = mapped_column(
+    # "internal" = one of the (up to 4) department lecturers.
+    # "external" = the external supervisor's final-stage score.
+    assessment_type: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="internal",
+        server_default="internal",
+    )
+
+    dress: Mapped[Decimal] = mapped_column(
         Numeric(5, 2), nullable=False
     )
 
-    oral_presentation: Mapped[Decimal] = mapped_column(
+    report_format: Mapped[Decimal] = mapped_column(
         Numeric(5, 2), nullable=False
     )
 
-    slide_presentation: Mapped[Decimal] = mapped_column(
+    problem_solved: Mapped[Decimal] = mapped_column(
         Numeric(5, 2), nullable=False
     )
 
-    depth_of_understanding: Mapped[Decimal] = mapped_column(
+    clarity_of_writeup: Mapped[Decimal] = mapped_column(
         Numeric(5, 2), nullable=False
     )
 
-    project_implementation: Mapped[Decimal] = mapped_column(
+    result_presentation: Mapped[Decimal] = mapped_column(
         Numeric(5, 2), nullable=False
     )
 
-    referencing_documentation: Mapped[Decimal] = mapped_column(
+    evidence_of_understanding: Mapped[Decimal] = mapped_column(
         Numeric(5, 2), nullable=False
     )
 
-    contribution_originality: Mapped[Decimal] = mapped_column(
+    knowledge_contribution: Mapped[Decimal] = mapped_column(
         Numeric(5, 2), nullable=False
     )
 
-    professional_conduct: Mapped[Decimal] = mapped_column(
+    reference: Mapped[Decimal] = mapped_column(
         Numeric(5, 2), nullable=False
     )
 
