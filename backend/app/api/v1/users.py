@@ -64,6 +64,16 @@ def create(
 
 
 @router.get(
+    "/me",
+    response_model=UserResponse,
+)
+def read_me(
+    current_user=Depends(get_current_user),
+):
+    return current_user
+
+
+@router.get(
     "/{user_id}",
     response_model=UserResponse,
 )
