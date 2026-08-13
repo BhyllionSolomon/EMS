@@ -1,6 +1,12 @@
 from datetime import date
 from pydantic import BaseModel
 
+from app.schemas.academic import (
+    ProgrammeResponse,
+    LevelResponse,
+    SessionResponse,
+)
+
 
 class StudentBase(BaseModel):
     matric_number: str
@@ -26,6 +32,12 @@ class StudentUpdate(BaseModel):
 
 class StudentResponse(StudentBase):
     id: int
+
+    # Nested objects so the frontend can display names directly,
+    # without a separate lookup call per id.
+    programme: ProgrammeResponse | None = None
+    level: LevelResponse | None = None
+    academic_session: SessionResponse | None = None
 
     class Config:
         from_attributes = True
