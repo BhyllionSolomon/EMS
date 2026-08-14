@@ -26,6 +26,44 @@ router = APIRouter(
 
 
 @router.post(
+    "/self-register",
+    response_model=StudentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def self_register(
+    student: StudentCreate,
+    db: Session = Depends(get_db),
+):
+    """
+    Public, unauthenticated endpoint that lets a student submit their
+    own project details (name, matric number, supervisor, project
+    title, programme, level, session) ahead of their presentation.
+    Insert-only -- editing or deleting a record still requires a
+    logged-in staff account via the routes below.
+    """
+
+    try:
+        new_student = create_student(
+            db,
+            student,
+            user_id=None,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+    if new_student is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A student with this matric number already exists",
+        )
+
+    return new_student
+
+
+@router.post(
     "/",
     response_model=StudentResponse,
     status_code=status.HTTP_201_CREATED,
