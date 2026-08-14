@@ -259,6 +259,444 @@ function Login({
             )}
           </button>
         </form>
+
+        <a className="login-register-link" href="/#register">
+          New student? Register your project details
+        </a>
+      </div>
+    </div>
+  );
+}
+
+/* =====================================================
+   PUBLIC STUDENT SELF-REGISTRATION
+===================================================== */
+
+export function StudentSelfRegister({ theme, onThemeChange }) {
+  const [form, setForm] = useState(EMPTY_STUDENT_FORM);
+
+  const [programmes, setProgrammes] = useState([]);
+  const [levels, setLevels] = useState([]);
+  const [sessions, setSessions] = useState([]);
+
+  const [optionErrors, setOptionErrors] = useState({
+    programmes: false,
+    levels: false,
+    sessions: false,
+  });
+
+  const [loadingOptions, setLoadingOptions] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [submitted, setSubmitted] = useState(null);
+
+  async function loadOptions() {
+    setLoadingOptions(true);
+    setError("");
+
+    const results = await Promise.allSettled([
+      axios.get(`${API_URL}/programmes/`),
+      axios.get(`${API_URL}/levels/`),
+      axios.get(`${API_URL}/sessions/`),
+    ]);
+
+    const [programmeResult, levelResult, sessionResult] = results;
+
+    const newErrors = {
+      programmes: false,
+      levels: false,
+      sessions: false,
+    };
+
+    if (programmeResult.status === "fulfilled") {
+      setProgrammes(
+        extractArray(programmeResult.value.data, "programmes")
+      );
+    } else {
+      newErrors.programmes = true;
+      setProgrammes([]);
+    }
+
+    if (levelResult.status === "fulfilled") {
+      setLevels(extractArray(levelResult.value.data, "levels"));
+    } else {
+      newErrors.levels = true;
+      setLevels([]);
+    }
+
+    if (sessionResult.status === "fulfilled") {
+      setSessions(extractArray(sessionResult.value.data, "sessions"));
+    } else {
+      newErrors.sessions = true;
+      setSessions([]);
+    }
+
+    setOptionErrors(newErrors);
+    setLoadingOptions(false);
+  }
+
+  useEffect(() => {
+    loadOptions();
+  }, []);
+
+  function handleChange(event) {
+    const { name, value } = event.target;
+
+    setForm((current) => ({
+      ...current,
+      [name]: value,
+    }));
+  }
+
+  function startAnother() {
+    setForm(EMPTY_STUDENT_FORM);
+    setSubmitted(null);
+    setError("");
+  }
+
+  async function submitRegistration(event) {
+    event.preventDefault();
+
+    if (saving) return;
+
+    setError("");
+
+    if (
+      !form.full_name.trim() ||
+      !form.matric_number.trim() ||
+      !form.programme_id ||
+      !form.level_id ||
+      !form.academic_session_id
+    ) {
+      setError(
+        "Please fill in your name, matric number, programme, level, and session."
+      );
+      return;
+    }
+
+    const payload = {
+      full_name: form.full_name.trim(),
+      matric_number: form.matric_number.trim(),
+      programme_id: Number(form.programme_id),
+      level_id: Number(form.level_id),
+      academic_session_id: Number(form.academic_session_id),
+      project_title: form.project_title.trim() || "Untitled",
+      supervisor: form.supervisor.trim() || null,
+      presentation_date: form.presentation_date || null,
+    };
+
+    try {
+      setSaving(true);
+
+      const response = await axios.post(
+        `${API_URL}/students/self-register`,
+        payload,
+        {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      setSubmitted(response.data);
+    } catch (err) {
+      console.error("SELF REGISTER ERROR:", err);
+
+      const detail = err.response?.data?.detail;
+
+      if (Array.isArray(detail)) {
+        setError(detail.map((item) => item.msg).join(", "));
+      } else if (err.response?.status === 409) {
+        setError(
+          "A student with this matric number has already been registered. Contact your department if this looks wrong."
+        );
+      } else if (err.response) {
+        setError(
+          detail || "Unable to submit your details. Please try again."
+        );
+      } else {
+        setError("Unable to connect to the server.");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="login-page"
+      style={{
+        alignItems: "flex-start",
+        overflowY: "auto",
+        paddingTop: "48px",
+        paddingBottom: "48px",
+      }}
+    >
+      <div className="login-theme">
+        <ThemeSwitcher
+          theme={theme}
+          onThemeChange={onThemeChange}
+        />
+      </div>
+
+      <div
+        className="login-card register-card"
+        style={{ maxWidth: "560px" }}
+      >
+        <div className="login-icon">
+          <GraduationCap size={42} />
+          <Sparkles className="sparkle-icon" size={18} />
+        </div>
+
+        <h1>Student Registration</h1>
+
+        <p className="login-subtitle">
+          Submit your project details ahead of your presentation
+        </p>
+
+        {submitted ? (
+          <div className="student-page">
+            <div className="success">
+              <CheckCircle size={18} />
+              You're registered, {submitted.full_name}.
+            </div>
+
+            <section className="panel" style={{ textAlign: "left" }}>
+              <div className="summary-row">
+                <div className="summary-item">
+                  <Users size={20} />
+                  <span>Matric Number</span>
+                  <strong>{submitted.matric_number}</strong>
+                </div>
+
+                <div className="summary-item">
+                  <BookOpen size={20} />
+                  <span>Programme</span>
+                  <strong>
+                    {submitted.programme?.name || "—"}
+                  </strong>
+                </div>
+
+                <div className="summary-item">
+                  <ClipboardCheck size={20} />
+                  <span>Session</span>
+                  <strong>
+                    {submitted.academic_session?.name || "—"}
+                  </strong>
+                </div>
+              </div>
+
+              <div style={{ marginTop: "14px", fontSize: "14px" }}>
+                <div>
+                  <strong>Project Title:</strong>{" "}
+                  {submitted.project_title}
+                </div>
+
+                {submitted.supervisor && (
+                  <div style={{ marginTop: "6px" }}>
+                    <strong>Supervisor:</strong>{" "}
+                    {submitted.supervisor}
+                  </div>
+                )}
+
+                <div style={{ marginTop: "6px" }}>
+                  <strong>Submitted:</strong>{" "}
+                  {new Date(
+                    submitted.created_at
+                  ).toLocaleString()}
+                </div>
+              </div>
+            </section>
+
+            <div
+              className="student-form-actions"
+              style={{ justifyContent: "center" }}
+            >
+              <button
+                type="button"
+                className="ap-secondary-button"
+                onClick={startAnother}
+              >
+                Register Another Student
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={submitRegistration}>
+            {error && (
+              <div className="login-error">{error}</div>
+            )}
+
+            <div className="input-group">
+              <label>Full Name *</label>
+
+              <input
+                name="full_name"
+                value={form.full_name}
+                onChange={handleChange}
+                placeholder="Enter your full name"
+                required
+              />
+            </div>
+
+            <div className="input-group">
+              <label>Matriculation Number *</label>
+
+              <input
+                name="matric_number"
+                value={form.matric_number}
+                onChange={handleChange}
+                placeholder="e.g. CSC/2022/001"
+                required
+              />
+            </div>
+
+            <div className="input-group">
+              <label>Programme *</label>
+
+              <select
+                name="programme_id"
+                value={form.programme_id}
+                onChange={handleChange}
+                required
+                disabled={
+                  loadingOptions || programmes.length === 0
+                }
+              >
+                <option value="">
+                  {getSelectPlaceholder(
+                    "Programme",
+                    programmes,
+                    loadingOptions,
+                    optionErrors.programmes
+                  )}
+                </option>
+
+                {programmes.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name ||
+                      item.programme_name ||
+                      item.code ||
+                      `Programme #${item.id}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="input-group">
+              <label>Level *</label>
+
+              <select
+                name="level_id"
+                value={form.level_id}
+                onChange={handleChange}
+                required
+                disabled={loadingOptions || levels.length === 0}
+              >
+                <option value="">
+                  {getSelectPlaceholder(
+                    "Level",
+                    levels,
+                    loadingOptions,
+                    optionErrors.levels
+                  )}
+                </option>
+
+                {levels.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name ||
+                      item.level_name ||
+                      item.title ||
+                      `Level #${item.id}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="input-group">
+              <label>Academic Session *</label>
+
+              <select
+                name="academic_session_id"
+                value={form.academic_session_id}
+                onChange={handleChange}
+                required
+                disabled={
+                  loadingOptions || sessions.length === 0
+                }
+              >
+                <option value="">
+                  {getSelectPlaceholder(
+                    "Academic Session",
+                    sessions,
+                    loadingOptions,
+                    optionErrors.sessions
+                  )}
+                </option>
+
+                {sessions.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name ||
+                      item.session_name ||
+                      item.title ||
+                      `Session #${item.id}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="input-group">
+              <label>Project Title</label>
+
+              <input
+                name="project_title"
+                value={form.project_title}
+                onChange={handleChange}
+                placeholder="Enter your project title"
+              />
+            </div>
+
+            <div className="input-group">
+              <label>Supervisor</label>
+
+              <input
+                name="supervisor"
+                value={form.supervisor}
+                onChange={handleChange}
+                placeholder="Enter your supervisor's name"
+              />
+            </div>
+
+            <div className="input-group">
+              <label>Presentation Date</label>
+
+              <input
+                type="date"
+                name="presentation_date"
+                value={form.presentation_date}
+                onChange={handleChange}
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={saving || loadingOptions}
+            >
+              {saving ? (
+                <>
+                  <span className="spinner" />
+                  Submitting...
+                </>
+              ) : (
+                "Submit My Details"
+              )}
+            </button>
+          </form>
+        )}
+
+        <a className="login-register-link" href="/">
+          Staff sign in
+        </a>
       </div>
     </div>
   );
@@ -5185,6 +5623,19 @@ const ASSESSMENT_STYLES = `
 .session-chip .badge {
   padding: 2px 8px;
   font-size: 11px;
+}
+
+.login-register-link {
+  display: block;
+  margin-top: 18px;
+  font-size: 13px;
+  color: #ddd6fe;
+  text-decoration: none;
+  text-align: center;
+}
+
+.login-register-link:hover {
+  text-decoration: underline;
 }
 `;
 
