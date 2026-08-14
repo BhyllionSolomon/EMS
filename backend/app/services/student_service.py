@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from typing import Optional
 
 from app.models.student import Student
 from app.models.academic import (
@@ -16,7 +17,7 @@ from app.services.audit_service import create_audit_log
 def create_student(
     db: Session,
     student_data: StudentCreate,
-    user_id: int,
+    user_id: Optional[int] = None,
 ):
     # Check for duplicate matric number
     existing_student = (
@@ -89,8 +90,9 @@ def create_student(
         entity_type="Student",
         entity_id=str(student.id),
         details=(
-            f"Created student "
-            f"{student.matric_number}"
+            f"Self-registered as {student.matric_number}"
+            if user_id is None
+            else f"Created student {student.matric_number}"
         ),
     )
 
@@ -196,4 +198,3 @@ def delete_student(
     )
 
     return True
-
