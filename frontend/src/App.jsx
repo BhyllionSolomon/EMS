@@ -24,6 +24,7 @@ import {
   FileText,
   UserPlus,
   Trash2,
+  ShieldCheck,
 } from "lucide-react";
 
 const API_URL = "https://ems-backend-app-2ju7.onrender.com";
@@ -529,6 +530,25 @@ function Dashboard({
             Import Excel
           </button>
 
+          {(currentUser?.role === "admin" ||
+            currentUser?.role === "external_supervisor") && (
+            <button
+              className={`nav-item ${
+                assessmentView === "external"
+                  ? "active"
+                  : ""
+              }`}
+              type="button"
+              onClick={() => {
+                setAssessmentView("external");
+                setSidebarOpen(false);
+              }}
+            >
+              <ShieldCheck size={19} />
+              External Score
+            </button>
+          )}
+
           <button
             className={`nav-item ${
               assessmentView === "report"
@@ -622,6 +642,9 @@ function Dashboard({
                 "import" ? (
                 <FileSpreadsheet size={25} />
               ) : assessmentView ===
+                "external" ? (
+                <ShieldCheck size={25} />
+              ) : assessmentView ===
                 "report" ? (
                 <FileText size={25} />
               ) : assessmentView ===
@@ -647,6 +670,9 @@ function Dashboard({
                     "import"
                   ? "Import Excel"
                   : assessmentView ===
+                    "external"
+                  ? "External Supervisor Score"
+                  : assessmentView ===
                     "report"
                   ? "Assessment Report"
                   : assessmentView ===
@@ -668,6 +694,9 @@ function Dashboard({
                   : assessmentView ===
                     "import"
                   ? "Upload a grading sheet to score students in bulk"
+                  : assessmentView ===
+                    "external"
+                  ? "Record the final-stage score, once internal scoring is complete"
                   : assessmentView ===
                     "report"
                   ? "Aggregate internal & external scores per student"
@@ -750,6 +779,14 @@ function Dashboard({
               onLogout={onLogout}
               onImported={handleAssessmentSaved}
               currentUser={currentUser}
+            />
+          ) : assessmentView ===
+            "external" ? (
+            <ExternalAssessmentPage
+              token={token}
+              students={students}
+              onLogout={onLogout}
+              onSaved={handleAssessmentSaved}
             />
           ) : assessmentView ===
             "report" ? (
@@ -2680,6 +2717,552 @@ function AssessmentPage({
                 <>
                   <Save size={18} />
                   Save Assessment
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
+/* =====================================================
+   EXTERNAL SUPERVISOR ASSESSMENT
+===================================================== */
+
+function ExternalAssessmentPage({
+  token,
+  students,
+  onLogout,
+  onSaved,
+}) {
+  const [search, setSearch] = useState("");
+  const [selectedStudent, setSelectedStudent] = useState(null);
+
+  const [report, setReport] = useState(null);
+  const [loadingReport, setLoadingReport] = useState(false);
+
+  const [scores, setScores] = useState(EMPTY_SCORES);
+  const [remarks, setRemarks] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const scoreInputRefs = useRef([]);
+  const remarksRef = useRef(null);
+  const searchInputRef = useRef(null);
+
+  const matchingStudents = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    if (!query) return [];
+
+    return students
+      .filter((student) => {
+        const name = getStudentName(student).toLowerCase();
+        const matric = getStudentMatric(student).toLowerCase();
+
+        return name.includes(query) || matric.includes(query);
+      })
+      .slice(0, 10);
+  }, [search, students]);
+
+  async function selectStudent(student) {
+    setSelectedStudent(student);
+    setSearch("");
+    setError("");
+    setReport(null);
+    setScores(EMPTY_SCORES);
+    setRemarks("");
+    setLoadingReport(true);
+
+    try {
+      const response = await axios.get(
+        `${API_URL}/assessments/student/${student.id}/report`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      setReport(response.data);
+
+      const existing = response.data.external_assessment;
+
+      if (existing) {
+        setScores(
+          Object.fromEntries(
+            RUBRIC_FIELDS.map((item) => [
+              item.key,
+              Number(existing[item.key]),
+            ])
+          )
+        );
+
+        setRemarks(existing.remarks || "");
+      }
+
+      requestAnimationFrame(() => {
+        scoreInputRefs.current[0]?.focus();
+      });
+    } catch (err) {
+      console.error("EXTERNAL REPORT ERROR:", err);
+
+      if ([401, 403].includes(err.response?.status)) {
+        onLogout();
+        return;
+      }
+
+      setError(
+        err.response?.data?.detail ||
+          "Unable to check this student's internal assessment status."
+      );
+    } finally {
+      setLoadingReport(false);
+    }
+  }
+
+  function changeStudent() {
+    setSelectedStudent(null);
+    setSearch("");
+    setReport(null);
+    setScores(EMPTY_SCORES);
+    setRemarks("");
+    setError("");
+
+    requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+    });
+  }
+
+  function handleScoreChange(criterion, rawValue) {
+    if (rawValue === "") {
+      setScores((current) => ({
+        ...current,
+        [criterion.key]: "",
+      }));
+
+      return;
+    }
+
+    let numericValue = Number(rawValue);
+
+    if (Number.isNaN(numericValue)) return;
+
+    if (numericValue > criterion.maximum) {
+      numericValue = criterion.maximum;
+    }
+
+    if (numericValue < 0) numericValue = 0;
+
+    setScores((current) => ({
+      ...current,
+      [criterion.key]: numericValue,
+    }));
+  }
+
+  function handleScoreKeyDown(event, index) {
+    if (event.key !== "Enter") return;
+
+    event.preventDefault();
+
+    const nextInput = scoreInputRefs.current[index + 1];
+
+    if (nextInput) {
+      nextInput.focus();
+      nextInput.select?.();
+    } else {
+      remarksRef.current?.focus();
+    }
+  }
+
+  const currentTotal = RUBRIC_FIELDS.reduce(
+    (sum, item) => sum + Number(scores[item.key] || 0),
+    0
+  );
+
+  const previewRecommendation = currentTotal >= 50 ? "Pass" : "Fail";
+
+  const isEditingExisting = Boolean(report?.external_assessment);
+  const canScore = report?.status === "ready";
+
+  async function submitAssessment(event) {
+    event.preventDefault();
+
+    if (saving) return;
+
+    setError("");
+
+    if (!selectedStudent) {
+      setError("Please select the student being assessed.");
+      return;
+    }
+
+    const missing = RUBRIC_FIELDS.filter(
+      (item) => scores[item.key] === ""
+    );
+
+    if (missing.length > 0) {
+      setError(
+        `Please enter a score for: ${missing
+          .map((item) => item.label)
+          .join(", ")}.`
+      );
+
+      return;
+    }
+
+    const invalid = RUBRIC_FIELDS.filter((item) => {
+      const value = Number(scores[item.key]);
+
+      return Number.isNaN(value) || value < 0 || value > item.maximum;
+    });
+
+    if (invalid.length > 0) {
+      setError(
+        `These scores are out of range: ${invalid
+          .map((item) => item.label)
+          .join(", ")}.`
+      );
+
+      return;
+    }
+
+    const payload = {
+      student_id: selectedStudent.id,
+
+      ...Object.fromEntries(
+        RUBRIC_FIELDS.map((item) => [
+          item.key,
+          Number(scores[item.key]),
+        ])
+      ),
+
+      remarks: remarks.trim() || null,
+    };
+
+    const submittedStudentName = getStudentName(selectedStudent);
+    const submittedStudentMatric = getStudentMatric(selectedStudent);
+
+    try {
+      setSaving(true);
+
+      const response = await axios.post(
+        `${API_URL}/assessments/external`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      const confirmationText = `External score saved for ${submittedStudentName} (${submittedStudentMatric}) — ${response.data.total_score}/100, ${response.data.recommendation}.`;
+
+      setSelectedStudent(null);
+      setSearch("");
+      setReport(null);
+      setScores(EMPTY_SCORES);
+      setRemarks("");
+      setError("");
+
+      await onSaved(confirmationText);
+
+      requestAnimationFrame(() => {
+        searchInputRef.current?.focus();
+      });
+    } catch (err) {
+      console.error("EXTERNAL SAVE ERROR:", err);
+
+      if ([401, 403].includes(err.response?.status)) {
+        onLogout();
+        return;
+      }
+
+      const detail = err.response?.data?.detail;
+
+      if (Array.isArray(detail)) {
+        setError(detail.map((item) => item.msg).join(", "));
+      } else {
+        setError(
+          detail || "Unable to save the external score. Please try again."
+        );
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="assessment-page-wrap">
+      <section className="ap-panel">
+        <div className="ap-panel-header">
+          <div>
+            <h2>Find Student</h2>
+
+            <p>
+              Search by name or any part of the matriculation number.
+            </p>
+          </div>
+
+          <Users size={23} />
+        </div>
+
+        {!selectedStudent ? (
+          <div className="ap-search-wrap">
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Type student name or matric number..."
+              autoComplete="off"
+              autoFocus
+            />
+
+            {search.trim() && matchingStudents.length > 0 && (
+              <div className="ap-results">
+                {matchingStudents.map((student) => (
+                  <button
+                    key={student.id}
+                    type="button"
+                    className="ap-result"
+                    onClick={() => selectStudent(student)}
+                  >
+                    <div className="ap-result-icon">
+                      <Users size={18} />
+                    </div>
+
+                    <div className="ap-result-text">
+                      <strong>{getStudentName(student)}</strong>
+
+                      <span>
+                        {getStudentMatric(student)}
+
+                        {getStudentProgramme(student) &&
+                          ` · ${getStudentProgramme(student)}`}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {search.trim() && matchingStudents.length === 0 && (
+              <div className="ap-empty">No matching student found.</div>
+            )}
+          </div>
+        ) : (
+          <div className="ap-selected-student">
+            <div>
+              <span className="ap-selected-label">
+                EXTERNAL ASSESSMENT FOR
+              </span>
+
+              <h3>{getStudentName(selectedStudent)}</h3>
+
+              <div className="ap-selected-meta">
+                <span>
+                  Matric No:{" "}
+                  <strong>{getStudentMatric(selectedStudent)}</strong>
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="ap-secondary-button"
+              onClick={changeStudent}
+            >
+              Change Student
+            </button>
+          </div>
+        )}
+      </section>
+
+      {error && <div className="error">{error}</div>}
+
+      {selectedStudent && loadingReport && (
+        <section className="panel">
+          <div className="empty-state">
+            <div className="loading-spinner" />
+            <p>Checking internal assessment status...</p>
+          </div>
+        </section>
+      )}
+
+      {selectedStudent && !loadingReport && report && !canScore && (
+        <section className="panel">
+          <div className="empty-state">
+            <ClipboardCheck size={35} />
+            <h3>Internal stage not complete yet</h3>
+            <p>
+              {report.internal_assessments_submitted}/
+              {report.internal_assessments_required} lecturers have
+              scored this student so far. All{" "}
+              {report.internal_assessments_required} internal scores
+              must be in before the external supervisor can score
+              them.
+            </p>
+          </div>
+        </section>
+      )}
+
+      {selectedStudent && !loadingReport && canScore && (
+        <form onSubmit={submitAssessment} className="ap-form">
+          {isEditingExisting && (
+            <div className="success">
+              <CheckCircle size={18} />
+              This student already has an external score -- saving
+              again will update it.
+            </div>
+          )}
+
+          <section className="ap-panel">
+            <div className="ap-panel-header">
+              <div>
+                <h2>Assessment Criteria</h2>
+
+                <p>
+                  Enter scores horizontally. Press Enter to move to
+                  the next criterion.
+                </p>
+              </div>
+
+              <div className="ap-live-total">
+                <span>TOTAL</span>
+
+                <strong>
+                  {currentTotal} <small>/ {MAXIMUM_TOTAL}</small>
+                </strong>
+              </div>
+            </div>
+
+            <div className="ap-criteria-row">
+              {RUBRIC_FIELDS.map((criterion, index) => (
+                <div
+                  className="ap-criterion-card"
+                  key={criterion.key}
+                >
+                  <label htmlFor={`external-${criterion.key}`}>
+                    {criterion.label}
+                  </label>
+
+                  <small className="criterion-max">
+                    Maximum: {criterion.maximum}
+                  </small>
+
+                  <div className="ap-score-input-wrap">
+                    <input
+                      id={`external-${criterion.key}`}
+                      ref={(element) => {
+                        scoreInputRefs.current[index] = element;
+                      }}
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      max={criterion.maximum}
+                      step="0.5"
+                      value={scores[criterion.key]}
+                      onChange={(event) =>
+                        handleScoreChange(
+                          criterion,
+                          event.target.value
+                        )
+                      }
+                      onKeyDown={(event) =>
+                        handleScoreKeyDown(event, index)
+                      }
+                      onFocus={(event) => event.target.select()}
+                      placeholder="0"
+                      required
+                    />
+
+                    <span className="ap-max-label">
+                      / {criterion.maximum}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="ap-panel">
+            <div className="ap-panel-header">
+              <div>
+                <h2>Preliminary Result</h2>
+
+                <p>
+                  Preview only. The backend calculates the official
+                  result when saved.
+                </p>
+              </div>
+            </div>
+
+            <div className="ap-preview-row">
+              <div>
+                <span>Preview Total</span>
+
+                <strong>
+                  {currentTotal} / {MAXIMUM_TOTAL}
+                </strong>
+              </div>
+
+              <div>
+                <span>Preview Recommendation</span>
+
+                <RecommendationBadge value={previewRecommendation} />
+              </div>
+            </div>
+          </section>
+
+          <section className="ap-panel">
+            <div className="ap-panel-header">
+              <div>
+                <h2>Remarks</h2>
+
+                <p>Optional comments about the final presentation.</p>
+              </div>
+            </div>
+
+            <textarea
+              ref={remarksRef}
+              value={remarks}
+              onChange={(event) => setRemarks(event.target.value)}
+              placeholder="Enter external assessment remarks..."
+              rows={3}
+            />
+          </section>
+
+          <div className="ap-actions">
+            <button
+              type="button"
+              className="ap-secondary-button"
+              onClick={changeStudent}
+              disabled={saving}
+            >
+              <X size={18} />
+              Cancel
+            </button>
+
+            <button
+              type="submit"
+              className="ap-save-button"
+              disabled={saving}
+            >
+              {saving ? (
+                <>
+                  <span className="spinner" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save size={18} />
+                  {isEditingExisting
+                    ? "Update External Score"
+                    : "Save External Score"}
                 </>
               )}
             </button>
