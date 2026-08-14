@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from pydantic import BaseModel
 
 from app.schemas.academic import (
@@ -32,6 +32,7 @@ class StudentUpdate(BaseModel):
 
 class StudentResponse(StudentBase):
     id: int
+    created_at: datetime
 
     # Nested objects so the frontend can display names directly,
     # without a separate lookup call per id.
