@@ -27,6 +27,18 @@ router = APIRouter(
 )
 
 
+def _block_students(current_user):
+    # Every endpoint here was written when every authenticated user
+    # was trusted staff. Now that "student" is a real login, it must
+    # be explicitly kept out of scoring, reports, and score lists --
+    # none of that is exposed to the student-facing workflow.
+    if current_user.role == "student":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not available to student accounts",
+        )
+
+
 @router.get(
     "/",
     response_model=list[AssessmentResponse],
@@ -35,6 +47,7 @@ def read_all_assessments(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    _block_students(current_user)
     return get_all_assessments(db)
 
 
@@ -53,6 +66,8 @@ def create(
     student. Calling this again for the same student simply updates the
     calling lecturer's own previous score.
     """
+
+    _block_students(current_user)
 
     try:
         return create_or_update_assessment(
@@ -110,6 +125,8 @@ def read_one(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    _block_students(current_user)
+
     assessment = get_assessment(db, assessment_id)
 
     if not assessment:
@@ -130,6 +147,7 @@ def read_student_assessments(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    _block_students(current_user)
     return get_student_assessments(db, student_id)
 
 
@@ -149,6 +167,8 @@ def read_student_report(
     before facing the external supervisor.
     """
 
+    _block_students(current_user)
+
     return get_student_report(db, student_id)
 
 
@@ -161,6 +181,8 @@ def delete(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    _block_students(current_user)
+
     assessment = delete_assessment(db, assessment_id)
 
     if not assessment:
