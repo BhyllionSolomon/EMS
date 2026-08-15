@@ -60,6 +60,24 @@ class Student(Base, TimestampMixin):
         nullable=True,
     )
 
+    # The student account this record belongs to, if the student
+    # submitted it themselves (via their own login). Null for records
+    # an admin/assessor created without a linked student account yet.
+    user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=True,
+        unique=True,
+    )
+
+    # Whoever actually created this row -- a student self-submitting,
+    # or an admin/assessor filling it in on the student's behalf.
+    # Kept separate from user_id so a record can be self-submitted
+    # (user_id == created_by_id) vs admin-assisted (they differ).
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=True,
+    )
+
     programme: Mapped["Programme"] = relationship(
         back_populates="students"
     )
@@ -68,7 +86,20 @@ class Student(Base, TimestampMixin):
 
     academic_session: Mapped["AcademicSession"] = relationship()
 
+    owner: Mapped[Optional["User"]] = relationship(
+        foreign_keys=[user_id],
+    )
+
+    created_by: Mapped[Optional["User"]] = relationship(
+        foreign_keys=[created_by_id],
+    )
+
     assessments: Mapped[list["Assessment"]] = relationship(
+        back_populates="student",
+        cascade="all, delete-orphan",
+    )
+
+    documents: Mapped[list["StudentDocument"]] = relationship(
         back_populates="student",
         cascade="all, delete-orphan",
     )
