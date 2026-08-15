@@ -24,7 +24,6 @@ import {
   FileText,
   UserPlus,
   Trash2,
-  ShieldCheck,
 } from "lucide-react";
 
 const API_URL = "https://ems-backend-app-2ju7.onrender.com";
@@ -259,444 +258,6 @@ function Login({
             )}
           </button>
         </form>
-
-        <a className="login-register-link" href="/#register">
-          New student? Register your project details
-        </a>
-      </div>
-    </div>
-  );
-}
-
-/* =====================================================
-   PUBLIC STUDENT SELF-REGISTRATION
-===================================================== */
-
-export function StudentSelfRegister({ theme, onThemeChange }) {
-  const [form, setForm] = useState(EMPTY_STUDENT_FORM);
-
-  const [programmes, setProgrammes] = useState([]);
-  const [levels, setLevels] = useState([]);
-  const [sessions, setSessions] = useState([]);
-
-  const [optionErrors, setOptionErrors] = useState({
-    programmes: false,
-    levels: false,
-    sessions: false,
-  });
-
-  const [loadingOptions, setLoadingOptions] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [submitted, setSubmitted] = useState(null);
-
-  async function loadOptions() {
-    setLoadingOptions(true);
-    setError("");
-
-    const results = await Promise.allSettled([
-      axios.get(`${API_URL}/programmes/`),
-      axios.get(`${API_URL}/levels/`),
-      axios.get(`${API_URL}/sessions/`),
-    ]);
-
-    const [programmeResult, levelResult, sessionResult] = results;
-
-    const newErrors = {
-      programmes: false,
-      levels: false,
-      sessions: false,
-    };
-
-    if (programmeResult.status === "fulfilled") {
-      setProgrammes(
-        extractArray(programmeResult.value.data, "programmes")
-      );
-    } else {
-      newErrors.programmes = true;
-      setProgrammes([]);
-    }
-
-    if (levelResult.status === "fulfilled") {
-      setLevels(extractArray(levelResult.value.data, "levels"));
-    } else {
-      newErrors.levels = true;
-      setLevels([]);
-    }
-
-    if (sessionResult.status === "fulfilled") {
-      setSessions(extractArray(sessionResult.value.data, "sessions"));
-    } else {
-      newErrors.sessions = true;
-      setSessions([]);
-    }
-
-    setOptionErrors(newErrors);
-    setLoadingOptions(false);
-  }
-
-  useEffect(() => {
-    loadOptions();
-  }, []);
-
-  function handleChange(event) {
-    const { name, value } = event.target;
-
-    setForm((current) => ({
-      ...current,
-      [name]: value,
-    }));
-  }
-
-  function startAnother() {
-    setForm(EMPTY_STUDENT_FORM);
-    setSubmitted(null);
-    setError("");
-  }
-
-  async function submitRegistration(event) {
-    event.preventDefault();
-
-    if (saving) return;
-
-    setError("");
-
-    if (
-      !form.full_name.trim() ||
-      !form.matric_number.trim() ||
-      !form.programme_id ||
-      !form.level_id ||
-      !form.academic_session_id
-    ) {
-      setError(
-        "Please fill in your name, matric number, programme, level, and session."
-      );
-      return;
-    }
-
-    const payload = {
-      full_name: form.full_name.trim(),
-      matric_number: form.matric_number.trim(),
-      programme_id: Number(form.programme_id),
-      level_id: Number(form.level_id),
-      academic_session_id: Number(form.academic_session_id),
-      project_title: form.project_title.trim() || "Untitled",
-      supervisor: form.supervisor.trim() || null,
-      presentation_date: form.presentation_date || null,
-    };
-
-    try {
-      setSaving(true);
-
-      const response = await axios.post(
-        `${API_URL}/students/self-register`,
-        payload,
-        {
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }
-      );
-
-      setSubmitted(response.data);
-    } catch (err) {
-      console.error("SELF REGISTER ERROR:", err);
-
-      const detail = err.response?.data?.detail;
-
-      if (Array.isArray(detail)) {
-        setError(detail.map((item) => item.msg).join(", "));
-      } else if (err.response?.status === 409) {
-        setError(
-          "A student with this matric number has already been registered. Contact your department if this looks wrong."
-        );
-      } else if (err.response) {
-        setError(
-          detail || "Unable to submit your details. Please try again."
-        );
-      } else {
-        setError("Unable to connect to the server.");
-      }
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div
-      className="login-page"
-      style={{
-        alignItems: "flex-start",
-        overflowY: "auto",
-        paddingTop: "48px",
-        paddingBottom: "48px",
-      }}
-    >
-      <div className="login-theme">
-        <ThemeSwitcher
-          theme={theme}
-          onThemeChange={onThemeChange}
-        />
-      </div>
-
-      <div
-        className="login-card register-card"
-        style={{ maxWidth: "560px" }}
-      >
-        <div className="login-icon">
-          <GraduationCap size={42} />
-          <Sparkles className="sparkle-icon" size={18} />
-        </div>
-
-        <h1>Student Registration</h1>
-
-        <p className="login-subtitle">
-          Submit your project details ahead of your presentation
-        </p>
-
-        {submitted ? (
-          <div className="student-page">
-            <div className="success">
-              <CheckCircle size={18} />
-              You're registered, {submitted.full_name}.
-            </div>
-
-            <section className="panel" style={{ textAlign: "left" }}>
-              <div className="summary-row">
-                <div className="summary-item">
-                  <Users size={20} />
-                  <span>Matric Number</span>
-                  <strong>{submitted.matric_number}</strong>
-                </div>
-
-                <div className="summary-item">
-                  <BookOpen size={20} />
-                  <span>Programme</span>
-                  <strong>
-                    {submitted.programme?.name || "—"}
-                  </strong>
-                </div>
-
-                <div className="summary-item">
-                  <ClipboardCheck size={20} />
-                  <span>Session</span>
-                  <strong>
-                    {submitted.academic_session?.name || "—"}
-                  </strong>
-                </div>
-              </div>
-
-              <div style={{ marginTop: "14px", fontSize: "14px" }}>
-                <div>
-                  <strong>Project Title:</strong>{" "}
-                  {submitted.project_title}
-                </div>
-
-                {submitted.supervisor && (
-                  <div style={{ marginTop: "6px" }}>
-                    <strong>Supervisor:</strong>{" "}
-                    {submitted.supervisor}
-                  </div>
-                )}
-
-                <div style={{ marginTop: "6px" }}>
-                  <strong>Submitted:</strong>{" "}
-                  {new Date(
-                    submitted.created_at
-                  ).toLocaleString()}
-                </div>
-              </div>
-            </section>
-
-            <div
-              className="student-form-actions"
-              style={{ justifyContent: "center" }}
-            >
-              <button
-                type="button"
-                className="ap-secondary-button"
-                onClick={startAnother}
-              >
-                Register Another Student
-              </button>
-            </div>
-          </div>
-        ) : (
-          <form onSubmit={submitRegistration}>
-            {error && (
-              <div className="login-error">{error}</div>
-            )}
-
-            <div className="input-group">
-              <label>Full Name *</label>
-
-              <input
-                name="full_name"
-                value={form.full_name}
-                onChange={handleChange}
-                placeholder="Enter your full name"
-                required
-              />
-            </div>
-
-            <div className="input-group">
-              <label>Matriculation Number *</label>
-
-              <input
-                name="matric_number"
-                value={form.matric_number}
-                onChange={handleChange}
-                placeholder="e.g. CSC/2022/001"
-                required
-              />
-            </div>
-
-            <div className="input-group">
-              <label>Programme *</label>
-
-              <select
-                name="programme_id"
-                value={form.programme_id}
-                onChange={handleChange}
-                required
-                disabled={
-                  loadingOptions || programmes.length === 0
-                }
-              >
-                <option value="">
-                  {getSelectPlaceholder(
-                    "Programme",
-                    programmes,
-                    loadingOptions,
-                    optionErrors.programmes
-                  )}
-                </option>
-
-                {programmes.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name ||
-                      item.programme_name ||
-                      item.code ||
-                      `Programme #${item.id}`}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="input-group">
-              <label>Level *</label>
-
-              <select
-                name="level_id"
-                value={form.level_id}
-                onChange={handleChange}
-                required
-                disabled={loadingOptions || levels.length === 0}
-              >
-                <option value="">
-                  {getSelectPlaceholder(
-                    "Level",
-                    levels,
-                    loadingOptions,
-                    optionErrors.levels
-                  )}
-                </option>
-
-                {levels.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name ||
-                      item.level_name ||
-                      item.title ||
-                      `Level #${item.id}`}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="input-group">
-              <label>Academic Session *</label>
-
-              <select
-                name="academic_session_id"
-                value={form.academic_session_id}
-                onChange={handleChange}
-                required
-                disabled={
-                  loadingOptions || sessions.length === 0
-                }
-              >
-                <option value="">
-                  {getSelectPlaceholder(
-                    "Academic Session",
-                    sessions,
-                    loadingOptions,
-                    optionErrors.sessions
-                  )}
-                </option>
-
-                {sessions.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name ||
-                      item.session_name ||
-                      item.title ||
-                      `Session #${item.id}`}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="input-group">
-              <label>Project Title</label>
-
-              <input
-                name="project_title"
-                value={form.project_title}
-                onChange={handleChange}
-                placeholder="Enter your project title"
-              />
-            </div>
-
-            <div className="input-group">
-              <label>Supervisor</label>
-
-              <input
-                name="supervisor"
-                value={form.supervisor}
-                onChange={handleChange}
-                placeholder="Enter your supervisor's name"
-              />
-            </div>
-
-            <div className="input-group">
-              <label>Presentation Date</label>
-
-              <input
-                type="date"
-                name="presentation_date"
-                value={form.presentation_date}
-                onChange={handleChange}
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={saving || loadingOptions}
-            >
-              {saving ? (
-                <>
-                  <span className="spinner" />
-                  Submitting...
-                </>
-              ) : (
-                "Submit My Details"
-              )}
-            </button>
-          </form>
-        )}
-
-        <a className="login-register-link" href="/">
-          Staff sign in
-        </a>
       </div>
     </div>
   );
@@ -881,6 +442,36 @@ function Dashboard({
     (user) => user.is_active
   ).length;
 
+  if (loading && !currentUser) {
+    return (
+      <div className="dashboard-layout">
+        <main
+          className="main-content"
+          style={{ marginLeft: 0, width: "100%" }}
+        >
+          <div className="content">
+            <div className="empty-state">
+              <div className="loading-spinner" />
+              Loading...
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (String(currentUser?.role || "").toLowerCase() === "student") {
+    return (
+      <StudentPortal
+        token={token}
+        currentUser={currentUser}
+        onLogout={onLogout}
+        theme={theme}
+        onThemeChange={onThemeChange}
+      />
+    );
+  }
+
   return (
     <div className="dashboard-layout">
       <aside
@@ -967,25 +558,6 @@ function Dashboard({
             <Upload size={19} />
             Import Excel
           </button>
-
-          {(currentUser?.role === "admin" ||
-            currentUser?.role === "external_supervisor") && (
-            <button
-              className={`nav-item ${
-                assessmentView === "external"
-                  ? "active"
-                  : ""
-              }`}
-              type="button"
-              onClick={() => {
-                setAssessmentView("external");
-                setSidebarOpen(false);
-              }}
-            >
-              <ShieldCheck size={19} />
-              External Score
-            </button>
-          )}
 
           <button
             className={`nav-item ${
@@ -1080,9 +652,6 @@ function Dashboard({
                 "import" ? (
                 <FileSpreadsheet size={25} />
               ) : assessmentView ===
-                "external" ? (
-                <ShieldCheck size={25} />
-              ) : assessmentView ===
                 "report" ? (
                 <FileText size={25} />
               ) : assessmentView ===
@@ -1108,9 +677,6 @@ function Dashboard({
                     "import"
                   ? "Import Excel"
                   : assessmentView ===
-                    "external"
-                  ? "External Supervisor Score"
-                  : assessmentView ===
                     "report"
                   ? "Assessment Report"
                   : assessmentView ===
@@ -1132,9 +698,6 @@ function Dashboard({
                   : assessmentView ===
                     "import"
                   ? "Upload a grading sheet to score students in bulk"
-                  : assessmentView ===
-                    "external"
-                  ? "Record the final-stage score, once internal scoring is complete"
                   : assessmentView ===
                     "report"
                   ? "Aggregate internal & external scores per student"
@@ -1217,14 +780,6 @@ function Dashboard({
               onLogout={onLogout}
               onImported={handleAssessmentSaved}
               currentUser={currentUser}
-            />
-          ) : assessmentView ===
-            "external" ? (
-            <ExternalAssessmentPage
-              token={token}
-              students={students}
-              onLogout={onLogout}
-              onSaved={handleAssessmentSaved}
             />
           ) : assessmentView ===
             "report" ? (
@@ -2444,6 +1999,570 @@ function StudentManagement({
 }
 
 /* =====================================================
+   STUDENT PORTAL (self-service, role = "student")
+===================================================== */
+
+function StudentPortal({
+  token,
+  currentUser,
+  onLogout,
+  theme,
+  onThemeChange,
+}) {
+  const [form, setForm] = useState(EMPTY_STUDENT_FORM);
+
+  const [programmes, setProgrammes] = useState([]);
+  const [levels, setLevels] = useState([]);
+  const [sessions, setSessions] = useState([]);
+
+  const [optionErrors, setOptionErrors] = useState({
+    programmes: false,
+    levels: false,
+    sessions: false,
+  });
+
+  const [loadingOptions, setLoadingOptions] = useState(true);
+  const [loadingRecord, setLoadingRecord] = useState(true);
+  const [hasExistingRecord, setHasExistingRecord] = useState(false);
+
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const authConfig = {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  };
+
+  async function loadOptions() {
+    try {
+      setLoadingOptions(true);
+
+      const results = await Promise.allSettled([
+        axios.get(`${API_URL}/programmes/`, authConfig),
+        axios.get(`${API_URL}/levels/`, authConfig),
+        axios.get(`${API_URL}/sessions/`, authConfig),
+      ]);
+
+      const [programmeResult, levelResult, sessionResult] = results;
+
+      const newErrors = {
+        programmes: false,
+        levels: false,
+        sessions: false,
+      };
+
+      if (programmeResult.status === "fulfilled") {
+        setProgrammes(
+          extractArray(programmeResult.value.data, "programmes")
+        );
+      } else {
+        newErrors.programmes = true;
+      }
+
+      if (levelResult.status === "fulfilled") {
+        setLevels(extractArray(levelResult.value.data, "levels"));
+      } else {
+        newErrors.levels = true;
+      }
+
+      if (sessionResult.status === "fulfilled") {
+        setSessions(
+          extractArray(sessionResult.value.data, "sessions")
+        );
+      } else {
+        newErrors.sessions = true;
+      }
+
+      setOptionErrors(newErrors);
+
+      const unauthorized = results.some(
+        (result) =>
+          result.status === "rejected" &&
+          [401, 403].includes(result.reason?.response?.status)
+      );
+
+      if (unauthorized) {
+        onLogout();
+      }
+    } catch (err) {
+      console.error("STUDENT PORTAL OPTIONS ERROR:", err);
+      setOptionErrors({ programmes: true, levels: true, sessions: true });
+    } finally {
+      setLoadingOptions(false);
+    }
+  }
+
+  // ⚠️ ASSUMPTION: this calls GET/POST `${API_URL}/students/me`, a
+  // self-service endpoint scoped to the logged-in student (no
+  // student_id needed -- the backend should resolve it from the JWT).
+  // This endpoint doesn't exist anywhere else in this file, so it
+  // needs to exist on the backend for this page to actually work.
+  async function loadMyRecord() {
+    try {
+      setLoadingRecord(true);
+
+      const response = await axios.get(
+        `${API_URL}/students/me`,
+        authConfig
+      );
+
+      const record = response.data;
+
+      setHasExistingRecord(true);
+
+      setForm({
+        matric_number:
+          record.matric_number ||
+          record.matriculation_number ||
+          "",
+        full_name:
+          record.full_name || currentUser?.full_name || "",
+        programme_id: String(
+          (typeof record.programme === "object" && record.programme
+            ? record.programme.id
+            : record.programme_id) ?? ""
+        ),
+        level_id: String(
+          (typeof record.level === "object" && record.level
+            ? record.level.id
+            : record.level_id) ?? ""
+        ),
+        academic_session_id: String(
+          (typeof record.academic_session === "object" &&
+          record.academic_session
+            ? record.academic_session.id
+            : record.academic_session_id) ?? ""
+        ),
+        project_title: record.project_title || "",
+        supervisor: record.supervisor || "",
+        presentation_date: record.presentation_date || "",
+      });
+    } catch (err) {
+      console.error("STUDENT PORTAL LOAD ERROR:", err);
+
+      if ([401, 403].includes(err.response?.status)) {
+        onLogout();
+        return;
+      }
+
+      if (err.response?.status === 404) {
+        // No project submitted yet -- start from a blank form,
+        // prefilled with the name on the account if available.
+        setForm((current) => ({
+          ...current,
+          full_name: currentUser?.full_name || current.full_name,
+        }));
+      } else {
+        setError(
+          "Unable to load your existing details. You can still fill in the form below."
+        );
+      }
+    } finally {
+      setLoadingRecord(false);
+    }
+  }
+
+  useEffect(() => {
+    loadOptions();
+    loadMyRecord();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function handleChange(event) {
+    const { name, value } = event.target;
+
+    setForm((current) => ({
+      ...current,
+      [name]: value,
+    }));
+  }
+
+  async function submitDetails(event) {
+    event.preventDefault();
+
+    if (saving) return;
+
+    setError("");
+    setSuccess("");
+
+    if (
+      programmes.length === 0 ||
+      levels.length === 0 ||
+      sessions.length === 0
+    ) {
+      setError(
+        "Programme, Level and Academic Session options must all load successfully before you can submit."
+      );
+      return;
+    }
+
+    // Session is explicitly required -- checked on its own first so
+    // the error message is specific if that's the one thing missing.
+    if (!String(form.academic_session_id || "").trim()) {
+      setError("Please select your Academic Session -- it's required.");
+      return;
+    }
+
+    const requiredFields = [
+      "matric_number",
+      "full_name",
+      "programme_id",
+      "level_id",
+      "academic_session_id",
+    ];
+
+    const missing = requiredFields.filter(
+      (field) => !String(form[field] || "").trim()
+    );
+
+    if (missing.length > 0) {
+      setError("Please complete all required fields.");
+      return;
+    }
+
+    const payload = {
+      matric_number: form.matric_number.trim(),
+      full_name: form.full_name.trim(),
+      programme_id: Number(form.programme_id),
+      level_id: Number(form.level_id),
+      academic_session_id: Number(form.academic_session_id),
+      project_title: form.project_title.trim() || null,
+      supervisor: form.supervisor.trim() || null,
+      presentation_date: form.presentation_date || null,
+    };
+
+    try {
+      setSaving(true);
+
+      await axios.post(`${API_URL}/students/me`, payload, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      setHasExistingRecord(true);
+      setSuccess("Your project details have been saved.");
+    } catch (err) {
+      console.error("STUDENT PORTAL SAVE ERROR:", err);
+
+      if ([401, 403].includes(err.response?.status)) {
+        onLogout();
+        return;
+      }
+
+      if (err.response?.status === 404) {
+        setError(
+          "The self-service endpoint (/students/me) isn't available on the backend yet -- ask your administrator to enable it."
+        );
+        return;
+      }
+
+      const detail = err.response?.data?.detail;
+
+      if (err.response?.status === 409) {
+        setError(
+          detail ||
+            "A student with this matriculation number already exists."
+        );
+      } else if (Array.isArray(detail)) {
+        setError(detail.map((item) => item.msg).join(", "));
+      } else {
+        setError(detail || "Unable to save your details.");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const hasAnyOptionError =
+    optionErrors.programmes ||
+    optionErrors.levels ||
+    optionErrors.sessions;
+
+  const canSubmit =
+    !saving &&
+    !loadingOptions &&
+    !loadingRecord &&
+    programmes.length > 0 &&
+    levels.length > 0 &&
+    sessions.length > 0;
+
+  return (
+    <div className="dashboard-layout">
+      <main
+        className="main-content"
+        style={{ marginLeft: 0, width: "100%" }}
+      >
+        <header className="top-header">
+          <div className="header-left">
+            <div className="header-icon">
+              <GraduationCap size={25} />
+            </div>
+
+            <div>
+              <h1>My Project Submission</h1>
+              <p>Enter your details so your project can be assessed</p>
+            </div>
+          </div>
+
+          <div className="header-actions">
+            <ThemeSwitcher
+              theme={theme}
+              onThemeChange={onThemeChange}
+              className="theme-switcher-header"
+            />
+
+            <button
+              className="logout-button"
+              onClick={onLogout}
+              type="button"
+            >
+              <LogOut size={17} />
+              Logout
+            </button>
+          </div>
+        </header>
+
+        <div className="content">
+          {(loadingOptions || loadingRecord) && (
+            <div className="empty-state">
+              <div className="loading-spinner" />
+              Loading your details...
+            </div>
+          )}
+
+          {error && <div className="error">{error}</div>}
+
+          {success && (
+            <div className="success">
+              <CheckCircle size={18} />
+              {success}
+            </div>
+          )}
+
+          {hasAnyOptionError && (
+            <div className="error">
+              Some options failed to load (Programme, Level or Academic
+              Session).
+              <div style={{ marginTop: ".5rem" }}>
+                <button
+                  type="button"
+                  className="ap-secondary-button"
+                  onClick={loadOptions}
+                  disabled={loadingOptions}
+                >
+                  <RefreshCw
+                    size={15}
+                    className={loadingOptions ? "spinning" : ""}
+                  />
+                  Retry Loading Options
+                </button>
+              </div>
+            </div>
+          )}
+
+          <form className="student-form" onSubmit={submitDetails}>
+            <section className="panel">
+              <div className="panel-header">
+                <div>
+                  <h2>Your Information</h2>
+                  <p>
+                    {hasExistingRecord
+                      ? "Update your student and project details below."
+                      : "Fill this in once -- you can come back and update it later."}
+                  </p>
+                </div>
+
+                <Users size={23} />
+              </div>
+
+              <div className="student-form-grid">
+                <div className="input-group">
+                  <label>Full Name *</label>
+                  <input
+                    name="full_name"
+                    value={form.full_name}
+                    onChange={handleChange}
+                    placeholder="Enter your full name"
+                    required
+                  />
+                </div>
+
+                <div className="input-group">
+                  <label>Matriculation Number *</label>
+                  <input
+                    name="matric_number"
+                    value={form.matric_number}
+                    onChange={handleChange}
+                    placeholder="e.g. CSC/2022/001"
+                    required
+                  />
+                </div>
+
+                <div className="input-group">
+                  <label>Programme *</label>
+                  <select
+                    name="programme_id"
+                    value={form.programme_id}
+                    onChange={handleChange}
+                    required
+                    disabled={loadingOptions || programmes.length === 0}
+                  >
+                    <option value="">
+                      {getSelectPlaceholder(
+                        "Programme",
+                        programmes,
+                        loadingOptions,
+                        optionErrors.programmes
+                      )}
+                    </option>
+
+                    {programmes.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name ||
+                          item.programme_name ||
+                          item.code ||
+                          `Programme #${item.id}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="input-group">
+                  <label>Level *</label>
+                  <select
+                    name="level_id"
+                    value={form.level_id}
+                    onChange={handleChange}
+                    required
+                    disabled={loadingOptions || levels.length === 0}
+                  >
+                    <option value="">
+                      {getSelectPlaceholder(
+                        "Level",
+                        levels,
+                        loadingOptions,
+                        optionErrors.levels
+                      )}
+                    </option>
+
+                    {levels.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name ||
+                          item.level_name ||
+                          item.title ||
+                          `Level #${item.id}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="input-group">
+                  <label>Academic Session * (required)</label>
+                  <select
+                    name="academic_session_id"
+                    value={form.academic_session_id}
+                    onChange={handleChange}
+                    required
+                    disabled={loadingOptions || sessions.length === 0}
+                  >
+                    <option value="">
+                      {getSelectPlaceholder(
+                        "Academic Session",
+                        sessions,
+                        loadingOptions,
+                        optionErrors.sessions
+                      )}
+                    </option>
+
+                    {sessions.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name ||
+                          item.session_name ||
+                          item.title ||
+                          `Session #${item.id}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="input-group">
+                  <label>Presentation Date</label>
+                  <input
+                    type="date"
+                    name="presentation_date"
+                    value={form.presentation_date}
+                    onChange={handleChange}
+                  />
+                </div>
+              </div>
+            </section>
+
+            <section className="panel">
+              <div className="panel-header">
+                <div>
+                  <h2>Project Information</h2>
+                  <p>Details about your final year project.</p>
+                </div>
+
+                <BookOpen size={23} />
+              </div>
+
+              <div className="student-form-grid">
+                <div className="input-group student-full-width">
+                  <label>Project Title</label>
+                  <input
+                    name="project_title"
+                    value={form.project_title}
+                    onChange={handleChange}
+                    placeholder="Enter your project title"
+                  />
+                </div>
+
+                <div className="input-group student-full-width">
+                  <label>Supervisor</label>
+                  <input
+                    name="supervisor"
+                    value={form.supervisor}
+                    onChange={handleChange}
+                    placeholder="Enter your supervisor's name"
+                  />
+                </div>
+              </div>
+            </section>
+
+            <div className="student-form-actions">
+              <button
+                type="submit"
+                className="ap-save-button"
+                disabled={!canSubmit}
+              >
+                {saving ? (
+                  <>
+                    <span className="spinner" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save size={18} />
+                    {hasExistingRecord
+                      ? "Update My Details"
+                      : "Submit My Details"}
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+/* =====================================================
    ASSESSMENT PAGE
 ===================================================== */
 
@@ -3166,552 +3285,6 @@ function AssessmentPage({
 }
 
 /* =====================================================
-   EXTERNAL SUPERVISOR ASSESSMENT
-===================================================== */
-
-function ExternalAssessmentPage({
-  token,
-  students,
-  onLogout,
-  onSaved,
-}) {
-  const [search, setSearch] = useState("");
-  const [selectedStudent, setSelectedStudent] = useState(null);
-
-  const [report, setReport] = useState(null);
-  const [loadingReport, setLoadingReport] = useState(false);
-
-  const [scores, setScores] = useState(EMPTY_SCORES);
-  const [remarks, setRemarks] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  const scoreInputRefs = useRef([]);
-  const remarksRef = useRef(null);
-  const searchInputRef = useRef(null);
-
-  const matchingStudents = useMemo(() => {
-    const query = search.trim().toLowerCase();
-
-    if (!query) return [];
-
-    return students
-      .filter((student) => {
-        const name = getStudentName(student).toLowerCase();
-        const matric = getStudentMatric(student).toLowerCase();
-
-        return name.includes(query) || matric.includes(query);
-      })
-      .slice(0, 10);
-  }, [search, students]);
-
-  async function selectStudent(student) {
-    setSelectedStudent(student);
-    setSearch("");
-    setError("");
-    setReport(null);
-    setScores(EMPTY_SCORES);
-    setRemarks("");
-    setLoadingReport(true);
-
-    try {
-      const response = await axios.get(
-        `${API_URL}/assessments/student/${student.id}/report`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      setReport(response.data);
-
-      const existing = response.data.external_assessment;
-
-      if (existing) {
-        setScores(
-          Object.fromEntries(
-            RUBRIC_FIELDS.map((item) => [
-              item.key,
-              Number(existing[item.key]),
-            ])
-          )
-        );
-
-        setRemarks(existing.remarks || "");
-      }
-
-      requestAnimationFrame(() => {
-        scoreInputRefs.current[0]?.focus();
-      });
-    } catch (err) {
-      console.error("EXTERNAL REPORT ERROR:", err);
-
-      if ([401, 403].includes(err.response?.status)) {
-        onLogout();
-        return;
-      }
-
-      setError(
-        err.response?.data?.detail ||
-          "Unable to check this student's internal assessment status."
-      );
-    } finally {
-      setLoadingReport(false);
-    }
-  }
-
-  function changeStudent() {
-    setSelectedStudent(null);
-    setSearch("");
-    setReport(null);
-    setScores(EMPTY_SCORES);
-    setRemarks("");
-    setError("");
-
-    requestAnimationFrame(() => {
-      searchInputRef.current?.focus();
-    });
-  }
-
-  function handleScoreChange(criterion, rawValue) {
-    if (rawValue === "") {
-      setScores((current) => ({
-        ...current,
-        [criterion.key]: "",
-      }));
-
-      return;
-    }
-
-    let numericValue = Number(rawValue);
-
-    if (Number.isNaN(numericValue)) return;
-
-    if (numericValue > criterion.maximum) {
-      numericValue = criterion.maximum;
-    }
-
-    if (numericValue < 0) numericValue = 0;
-
-    setScores((current) => ({
-      ...current,
-      [criterion.key]: numericValue,
-    }));
-  }
-
-  function handleScoreKeyDown(event, index) {
-    if (event.key !== "Enter") return;
-
-    event.preventDefault();
-
-    const nextInput = scoreInputRefs.current[index + 1];
-
-    if (nextInput) {
-      nextInput.focus();
-      nextInput.select?.();
-    } else {
-      remarksRef.current?.focus();
-    }
-  }
-
-  const currentTotal = RUBRIC_FIELDS.reduce(
-    (sum, item) => sum + Number(scores[item.key] || 0),
-    0
-  );
-
-  const previewRecommendation = currentTotal >= 50 ? "Pass" : "Fail";
-
-  const isEditingExisting = Boolean(report?.external_assessment);
-  const canScore = report?.status === "ready";
-
-  async function submitAssessment(event) {
-    event.preventDefault();
-
-    if (saving) return;
-
-    setError("");
-
-    if (!selectedStudent) {
-      setError("Please select the student being assessed.");
-      return;
-    }
-
-    const missing = RUBRIC_FIELDS.filter(
-      (item) => scores[item.key] === ""
-    );
-
-    if (missing.length > 0) {
-      setError(
-        `Please enter a score for: ${missing
-          .map((item) => item.label)
-          .join(", ")}.`
-      );
-
-      return;
-    }
-
-    const invalid = RUBRIC_FIELDS.filter((item) => {
-      const value = Number(scores[item.key]);
-
-      return Number.isNaN(value) || value < 0 || value > item.maximum;
-    });
-
-    if (invalid.length > 0) {
-      setError(
-        `These scores are out of range: ${invalid
-          .map((item) => item.label)
-          .join(", ")}.`
-      );
-
-      return;
-    }
-
-    const payload = {
-      student_id: selectedStudent.id,
-
-      ...Object.fromEntries(
-        RUBRIC_FIELDS.map((item) => [
-          item.key,
-          Number(scores[item.key]),
-        ])
-      ),
-
-      remarks: remarks.trim() || null,
-    };
-
-    const submittedStudentName = getStudentName(selectedStudent);
-    const submittedStudentMatric = getStudentMatric(selectedStudent);
-
-    try {
-      setSaving(true);
-
-      const response = await axios.post(
-        `${API_URL}/assessments/external`,
-        payload,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-
-      const confirmationText = `External score saved for ${submittedStudentName} (${submittedStudentMatric}) — ${response.data.total_score}/100, ${response.data.recommendation}.`;
-
-      setSelectedStudent(null);
-      setSearch("");
-      setReport(null);
-      setScores(EMPTY_SCORES);
-      setRemarks("");
-      setError("");
-
-      await onSaved(confirmationText);
-
-      requestAnimationFrame(() => {
-        searchInputRef.current?.focus();
-      });
-    } catch (err) {
-      console.error("EXTERNAL SAVE ERROR:", err);
-
-      if ([401, 403].includes(err.response?.status)) {
-        onLogout();
-        return;
-      }
-
-      const detail = err.response?.data?.detail;
-
-      if (Array.isArray(detail)) {
-        setError(detail.map((item) => item.msg).join(", "));
-      } else {
-        setError(
-          detail || "Unable to save the external score. Please try again."
-        );
-      }
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="assessment-page-wrap">
-      <section className="ap-panel">
-        <div className="ap-panel-header">
-          <div>
-            <h2>Find Student</h2>
-
-            <p>
-              Search by name or any part of the matriculation number.
-            </p>
-          </div>
-
-          <Users size={23} />
-        </div>
-
-        {!selectedStudent ? (
-          <div className="ap-search-wrap">
-            <input
-              ref={searchInputRef}
-              type="text"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Type student name or matric number..."
-              autoComplete="off"
-              autoFocus
-            />
-
-            {search.trim() && matchingStudents.length > 0 && (
-              <div className="ap-results">
-                {matchingStudents.map((student) => (
-                  <button
-                    key={student.id}
-                    type="button"
-                    className="ap-result"
-                    onClick={() => selectStudent(student)}
-                  >
-                    <div className="ap-result-icon">
-                      <Users size={18} />
-                    </div>
-
-                    <div className="ap-result-text">
-                      <strong>{getStudentName(student)}</strong>
-
-                      <span>
-                        {getStudentMatric(student)}
-
-                        {getStudentProgramme(student) &&
-                          ` · ${getStudentProgramme(student)}`}
-                      </span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {search.trim() && matchingStudents.length === 0 && (
-              <div className="ap-empty">No matching student found.</div>
-            )}
-          </div>
-        ) : (
-          <div className="ap-selected-student">
-            <div>
-              <span className="ap-selected-label">
-                EXTERNAL ASSESSMENT FOR
-              </span>
-
-              <h3>{getStudentName(selectedStudent)}</h3>
-
-              <div className="ap-selected-meta">
-                <span>
-                  Matric No:{" "}
-                  <strong>{getStudentMatric(selectedStudent)}</strong>
-                </span>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              className="ap-secondary-button"
-              onClick={changeStudent}
-            >
-              Change Student
-            </button>
-          </div>
-        )}
-      </section>
-
-      {error && <div className="error">{error}</div>}
-
-      {selectedStudent && loadingReport && (
-        <section className="panel">
-          <div className="empty-state">
-            <div className="loading-spinner" />
-            <p>Checking internal assessment status...</p>
-          </div>
-        </section>
-      )}
-
-      {selectedStudent && !loadingReport && report && !canScore && (
-        <section className="panel">
-          <div className="empty-state">
-            <ClipboardCheck size={35} />
-            <h3>Internal stage not complete yet</h3>
-            <p>
-              {report.internal_assessments_submitted}/
-              {report.internal_assessments_required} lecturers have
-              scored this student so far. All{" "}
-              {report.internal_assessments_required} internal scores
-              must be in before the external supervisor can score
-              them.
-            </p>
-          </div>
-        </section>
-      )}
-
-      {selectedStudent && !loadingReport && canScore && (
-        <form onSubmit={submitAssessment} className="ap-form">
-          {isEditingExisting && (
-            <div className="success">
-              <CheckCircle size={18} />
-              This student already has an external score -- saving
-              again will update it.
-            </div>
-          )}
-
-          <section className="ap-panel">
-            <div className="ap-panel-header">
-              <div>
-                <h2>Assessment Criteria</h2>
-
-                <p>
-                  Enter scores horizontally. Press Enter to move to
-                  the next criterion.
-                </p>
-              </div>
-
-              <div className="ap-live-total">
-                <span>TOTAL</span>
-
-                <strong>
-                  {currentTotal} <small>/ {MAXIMUM_TOTAL}</small>
-                </strong>
-              </div>
-            </div>
-
-            <div className="ap-criteria-row">
-              {RUBRIC_FIELDS.map((criterion, index) => (
-                <div
-                  className="ap-criterion-card"
-                  key={criterion.key}
-                >
-                  <label htmlFor={`external-${criterion.key}`}>
-                    {criterion.label}
-                  </label>
-
-                  <small className="criterion-max">
-                    Maximum: {criterion.maximum}
-                  </small>
-
-                  <div className="ap-score-input-wrap">
-                    <input
-                      id={`external-${criterion.key}`}
-                      ref={(element) => {
-                        scoreInputRefs.current[index] = element;
-                      }}
-                      type="number"
-                      inputMode="decimal"
-                      min="0"
-                      max={criterion.maximum}
-                      step="0.5"
-                      value={scores[criterion.key]}
-                      onChange={(event) =>
-                        handleScoreChange(
-                          criterion,
-                          event.target.value
-                        )
-                      }
-                      onKeyDown={(event) =>
-                        handleScoreKeyDown(event, index)
-                      }
-                      onFocus={(event) => event.target.select()}
-                      placeholder="0"
-                      required
-                    />
-
-                    <span className="ap-max-label">
-                      / {criterion.maximum}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="ap-panel">
-            <div className="ap-panel-header">
-              <div>
-                <h2>Preliminary Result</h2>
-
-                <p>
-                  Preview only. The backend calculates the official
-                  result when saved.
-                </p>
-              </div>
-            </div>
-
-            <div className="ap-preview-row">
-              <div>
-                <span>Preview Total</span>
-
-                <strong>
-                  {currentTotal} / {MAXIMUM_TOTAL}
-                </strong>
-              </div>
-
-              <div>
-                <span>Preview Recommendation</span>
-
-                <RecommendationBadge value={previewRecommendation} />
-              </div>
-            </div>
-          </section>
-
-          <section className="ap-panel">
-            <div className="ap-panel-header">
-              <div>
-                <h2>Remarks</h2>
-
-                <p>Optional comments about the final presentation.</p>
-              </div>
-            </div>
-
-            <textarea
-              ref={remarksRef}
-              value={remarks}
-              onChange={(event) => setRemarks(event.target.value)}
-              placeholder="Enter external assessment remarks..."
-              rows={3}
-            />
-          </section>
-
-          <div className="ap-actions">
-            <button
-              type="button"
-              className="ap-secondary-button"
-              onClick={changeStudent}
-              disabled={saving}
-            >
-              <X size={18} />
-              Cancel
-            </button>
-
-            <button
-              type="submit"
-              className="ap-save-button"
-              disabled={saving}
-            >
-              {saving ? (
-                <>
-                  <span className="spinner" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save size={18} />
-                  {isEditingExisting
-                    ? "Update External Score"
-                    : "Save External Score"}
-                </>
-              )}
-            </button>
-          </div>
-        </form>
-      )}
-    </div>
-  );
-}
-
-/* =====================================================
    IMPORT EXCEL
 ===================================================== */
 
@@ -4307,6 +3880,7 @@ const EMPTY_USER_FORM = {
 const USER_ROLES = [
   { value: "assessor", label: "Assessor (Lecturer)" },
   { value: "external_supervisor", label: "External Supervisor" },
+  { value: "student", label: "Student" },
   { value: "admin", label: "Administrator" },
 ];
 
@@ -4455,8 +4029,8 @@ function AdminUsers({ token, users, onLogout, onSaved }) {
               <div>
                 <h2>New User</h2>
                 <p>
-                  Create a lecturer (assessor), external supervisor, or
-                  admin account.
+                  Create a lecturer (assessor), external supervisor,
+                  student, or admin account.
                 </p>
               </div>
 
@@ -5623,19 +5197,6 @@ const ASSESSMENT_STYLES = `
 .session-chip .badge {
   padding: 2px 8px;
   font-size: 11px;
-}
-
-.login-register-link {
-  display: block;
-  margin-top: 18px;
-  font-size: 13px;
-  color: #ddd6fe;
-  text-decoration: none;
-  text-align: center;
-}
-
-.login-register-link:hover {
-  text-decoration: underline;
 }
 `;
 
