@@ -17,7 +17,8 @@ from app.services.audit_service import create_audit_log
 def create_student(
     db: Session,
     student_data: StudentCreate,
-    user_id: Optional[int] = None,
+    created_by_id: Optional[int] = None,
+    owner_user_id: Optional[int] = None,
 ):
     # Check for duplicate matric number
     existing_student = (
@@ -75,7 +76,9 @@ def create_student(
 
     # Create student
     student = Student(
-        **student_data.model_dump()
+        **student_data.model_dump(),
+        user_id=owner_user_id,
+        created_by_id=created_by_id,
     )
 
     db.add(student)
@@ -85,13 +88,13 @@ def create_student(
     # Create audit log
     create_audit_log(
         db=db,
-        user_id=user_id,
+        user_id=created_by_id,
         action="CREATE",
         entity_type="Student",
         entity_id=str(student.id),
         details=(
             f"Self-registered as {student.matric_number}"
-            if user_id is None
+            if owner_user_id is not None
             else f"Created student {student.matric_number}"
         ),
     )
@@ -116,6 +119,19 @@ def get_student(
         db.query(Student)
         .filter(
             Student.id == student_id
+        )
+        .first()
+    )
+
+
+def get_student_by_user(
+    db: Session,
+    user_id: int,
+):
+    return (
+        db.query(Student)
+        .filter(
+            Student.user_id == user_id
         )
         .first()
     )
