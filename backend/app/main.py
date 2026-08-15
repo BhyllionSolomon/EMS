@@ -18,6 +18,7 @@ from app.api.v1 import users
 from app.api.v1 import audit
 
 from app.models.user import User
+from app.models.student_document import StudentDocument
 from app.utils.security import hash_password
 
 
