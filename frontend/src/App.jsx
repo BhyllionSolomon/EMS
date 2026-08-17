@@ -498,37 +498,41 @@ function Dashboard({
             Students
           </button>
 
-          <button
-            className={`nav-item ${
-              assessmentView === "assessment"
-                ? "active"
-                : ""
-            }`}
-            type="button"
-            onClick={() => {
-              setAssessmentView("assessment");
-              setSidebarOpen(false);
-            }}
-          >
-            <ClipboardCheck size={19} />
-            Assessments
-          </button>
+          {currentUser?.role !== "student" && (
+            <button
+              className={`nav-item ${
+                assessmentView === "assessment"
+                  ? "active"
+                  : ""
+              }`}
+              type="button"
+              onClick={() => {
+                setAssessmentView("assessment");
+                setSidebarOpen(false);
+              }}
+            >
+              <ClipboardCheck size={19} />
+              Assessments
+            </button>
+          )}
 
-          <button
-            className={`nav-item ${
-              assessmentView === "import"
-                ? "active"
-                : ""
-            }`}
-            type="button"
-            onClick={() => {
-              setAssessmentView("import");
-              setSidebarOpen(false);
-            }}
-          >
-            <Upload size={19} />
-            Import Excel
-          </button>
+          {currentUser?.role !== "student" && (
+            <button
+              className={`nav-item ${
+                assessmentView === "import"
+                  ? "active"
+                  : ""
+              }`}
+              type="button"
+              onClick={() => {
+                setAssessmentView("import");
+                setSidebarOpen(false);
+              }}
+            >
+              <Upload size={19} />
+              Import Excel
+            </button>
+          )}
 
           {(currentUser?.role === "admin" ||
             currentUser?.role === "external_supervisor") && (
@@ -583,23 +587,24 @@ function Dashboard({
             </button>
           )}
 
-          <button
-            className={`nav-item ${
-              assessmentView === "sessions"
-                ? "active"
-                : ""
-            }`}
-            type="button"
-            onClick={() => {
-              setAssessmentView("sessions");
-              setSidebarOpen(false);
-            }}
-          >
-            <BookOpen size={19} />
-            Sessions
-          </button>
+          {currentUser?.role !== "student" && (
+            <button
+              className={`nav-item ${
+                assessmentView === "sessions"
+                  ? "active"
+                  : ""
+              }`}
+              type="button"
+              onClick={() => {
+                setAssessmentView("sessions");
+                setSidebarOpen(false);
+              }}
+            >
+              <BookOpen size={19} />
+              Sessions
+            </button>
+          )}
         </nav>
-
         <div className="sidebar-footer">
           <button
             className="nav-item logout-item"
@@ -795,6 +800,7 @@ function Dashboard({
               token={token}
               students={students}
               onLogout={onLogout}
+              currentUser={currentUser}
             />
           ) : assessmentView ===
             "users" ? (
@@ -820,6 +826,13 @@ function Dashboard({
                 </div>
               )}
 
+              {currentUser?.role === "student" ? (
+                <StudentDashboardOverview
+                  token={token}
+                  onLogout={onLogout}
+                />
+              ) : (
+                <>
               <div className="stat-cards">
                 <StatCard
                   title="Total Students"
@@ -1066,6 +1079,8 @@ function Dashboard({
                   </div>
                 </section>
               </div>
+              </>
+              )}
             </>
           )}
         </div>
@@ -4087,12 +4102,16 @@ function ImportExcel({ token, onLogout, onImported, currentUser }) {
    REPORT VIEW
 ===================================================== */
 
-function ReportView({ token, students, onLogout }) {
+function ReportView({ token, students, onLogout, currentUser }) {
+  const isStudentRole = currentUser?.role === "student";
+
   const [search, setSearch] = useState("");
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [report, setReport] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(isStudentRole);
   const [error, setError] = useState("");
+  const [notSubmitted, setNotSubmitted] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   const searchInputRef = useRef(null);
 
@@ -4110,6 +4129,100 @@ function ReportView({ token, students, onLogout }) {
       })
       .slice(0, 10);
   }, [search, students]);
+
+  useEffect(() => {
+    if (!isStudentRole) return;
+
+    let isMounted = true;
+
+    async function loadOwnReport() {
+      setLoading(true);
+      setError("");
+      setNotSubmitted(false);
+
+      try {
+        const response = await axios.get(
+          `${API_URL}/assessments/me`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        if (isMounted) setReport(response.data);
+      } catch (err) {
+        if (!isMounted) return;
+
+        console.error("MY REPORT ERROR:", err);
+
+        if ([401, 403].includes(err.response?.status)) {
+          onLogout();
+          return;
+        }
+
+        if (err.response?.status === 404) {
+          setNotSubmitted(true);
+        } else {
+          setError(
+            "Unable to load your assessment report."
+          );
+        }
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    }
+
+    loadOwnReport();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isStudentRole, token]);
+
+  async function downloadPdf() {
+    setError("");
+
+    try {
+      setDownloadingPdf(true);
+
+      const response = await axios.get(
+        `${API_URL}/assessments/me/pdf`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          responseType: "blob",
+        }
+      );
+
+      const url = window.URL.createObjectURL(
+        new Blob([response.data])
+      );
+
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute(
+        "download",
+        "assessment-report.pdf"
+      );
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("PDF DOWNLOAD ERROR:", err);
+
+      if ([401, 403].includes(err.response?.status)) {
+        onLogout();
+        return;
+      }
+
+      setError("Unable to download your report as PDF.");
+    } finally {
+      setDownloadingPdf(false);
+    }
+  }
 
   async function selectStudent(student) {
     setSelectedStudent(student);
@@ -4157,8 +4270,39 @@ function ReportView({ token, students, onLogout }) {
     });
   }
 
+  if (isStudentRole && loading) {
+    return (
+      <div className="assessment-page-wrap">
+        <section className="panel">
+          <div className="empty-state">
+            <div className="loading-spinner" />
+            <p>Loading your report...</p>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  if (isStudentRole && notSubmitted) {
+    return (
+      <div className="assessment-page-wrap">
+        <section className="panel">
+          <div className="empty-state">
+            <FileText size={35} />
+            <h3>No submission yet</h3>
+            <p>
+              Go to Students to submit your project details
+              before a report can be generated.
+            </p>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="assessment-page-wrap">
+      {!isStudentRole && (
       <section className="ap-panel">
         <div className="ap-panel-header">
           <div>
@@ -4243,10 +4387,37 @@ function ReportView({ token, students, onLogout }) {
           </div>
         )}
       </section>
+      )}
 
       {error && <div className="error">{error}</div>}
 
-      {selectedStudent && loading && (
+      {isStudentRole && report && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            marginBottom: "14px",
+          }}
+        >
+          <button
+            type="button"
+            className="ap-secondary-button"
+            onClick={downloadPdf}
+            disabled={downloadingPdf}
+          >
+            {downloadingPdf ? (
+              <span className="spinner" />
+            ) : (
+              <>
+                <FileText size={15} />
+                Download PDF
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
+      {!isStudentRole && selectedStudent && loading && (
         <section className="panel">
           <div className="empty-state">
             <div className="loading-spinner" />
@@ -4255,7 +4426,7 @@ function ReportView({ token, students, onLogout }) {
         </section>
       )}
 
-      {selectedStudent && !loading && report && (
+      {(isStudentRole || selectedStudent) && !loading && report && (
         <>
           <section className="panel">
             <div className="panel-header">
@@ -5150,6 +5321,193 @@ function getStudentSession(
 /* =====================================================
    STAT CARD
 ===================================================== */
+
+/* =====================================================
+   STUDENT DASHBOARD OVERVIEW
+===================================================== */
+
+function StudentDashboardOverview({ token, onLogout }) {
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [notSubmitted, setNotSubmitted] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function load() {
+      setLoading(true);
+      setError("");
+      setNotSubmitted(false);
+
+      try {
+        const response = await axios.get(
+          `${API_URL}/assessments/me`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        if (isMounted) setReport(response.data);
+      } catch (err) {
+        if (!isMounted) return;
+
+        if (
+          [401, 403].includes(
+            err.response?.status
+          )
+        ) {
+          onLogout();
+          return;
+        }
+
+        if (err.response?.status === 404) {
+          setNotSubmitted(true);
+        } else {
+          setError(
+            "Unable to load your assessment status."
+          );
+        }
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    }
+
+    load();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [token]);
+
+  if (loading) {
+    return (
+      <section className="panel">
+        <div className="empty-state">
+          <div className="loading-spinner" />
+          <p>
+            Loading your assessment
+            status...
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  if (notSubmitted) {
+    return (
+      <section className="panel">
+        <div className="empty-state">
+          <ClipboardCheck size={35} />
+          <h3>No submission yet</h3>
+          <p>
+            Go to Students to submit your
+            project details before
+            assessment can begin.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="error">
+        {error}
+      </div>
+    );
+  }
+
+  const statusLabel =
+    report.status === "ready"
+      ? "Complete"
+      : `${report.internal_assessments_submitted}/${report.internal_assessments_required} scored`;
+
+  const scoreLabel =
+    report.internal_average_total !=
+    null
+      ? Number(
+          report.internal_average_total
+        ).toFixed(2)
+      : "Pending";
+
+  const recommendation = String(
+    report.internal_recommendation || ""
+  ).toLowerCase();
+
+  const isPass =
+    recommendation.includes("pass");
+
+  const isFail =
+    recommendation.includes("fail");
+
+  return (
+    <>
+      <div className="stat-cards">
+        <StatCard
+          title="Assessment"
+          value={statusLabel}
+          icon={<ClipboardCheck />}
+          color="purple"
+        />
+
+        <StatCard
+          title="Score"
+          value={scoreLabel}
+          icon={<BarChart3 />}
+          color="orange"
+        />
+
+        <StatCard
+          title="Passed"
+          value={isPass ? "Yes" : "—"}
+          icon={<CheckCircle />}
+          color="indigo"
+        />
+
+        <StatCard
+          title="Failed"
+          value={isFail ? "Yes" : "—"}
+          icon={<XCircle />}
+          color="red"
+        />
+      </div>
+
+      {report.areas_to_improve &&
+        report.areas_to_improve.length >
+          0 && (
+          <section
+            className="panel"
+            style={{
+              marginTop: "22px",
+            }}
+          >
+            <div className="panel-header">
+              <div>
+                <h2>
+                  Areas to Improve
+                </h2>
+              </div>
+            </div>
+
+            <div className="overview-list">
+              {report.areas_to_improve.map(
+                (area, index) => (
+                  <div key={index}>
+                    <span>
+                      {area}
+                    </span>
+                  </div>
+                )
+              )}
+            </div>
+          </section>
+        )}
+    </>
+  );
+}
 
 function StatCard({
   title,
