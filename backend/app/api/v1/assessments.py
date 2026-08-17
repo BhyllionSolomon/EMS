@@ -1,4 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
+import io
+
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -19,6 +22,8 @@ from app.services.assessment_service import (
     get_student_assessments,
     get_student_report,
 )
+from app.services.student_service import get_student_by_user
+from app.services.pdf_service import generate_student_report_pdf
 
 
 router = APIRouter(
@@ -114,6 +119,73 @@ def create_external(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
+
+
+def _get_own_student_or_404(db: Session, current_user):
+    student = get_student_by_user(db, current_user.id)
+
+    if not student:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="You have not submitted your details yet",
+        )
+
+    return student
+
+
+@router.get(
+    "/me",
+    response_model=StudentAssessmentReport,
+)
+def read_my_report(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """
+    Self-scoped version of the report below -- resolves the student
+    from the logged-in account itself, so a student can never view
+    anyone else's result no matter what id they might try in a URL.
+    """
+
+    if current_user.role != "student":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only student accounts can use this endpoint",
+        )
+
+    student = _get_own_student_or_404(db, current_user)
+
+    return get_student_report(db, student.id)
+
+
+@router.get(
+    "/me/pdf",
+)
+def download_my_report_pdf(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    if current_user.role != "student":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only student accounts can use this endpoint",
+        )
+
+    student = _get_own_student_or_404(db, current_user)
+
+    report = get_student_report(db, student.id)
+
+    pdf_bytes = generate_student_report_pdf(student, report)
+
+    filename = f"assessment-report-{student.matric_number}.pdf"
+
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        },
+    )
 
 
 @router.get(
