@@ -1,4 +1,5 @@
 openpyxl
+reportlab
 bcrypt
 alembic==1.19.0
 annotated-doc==0.0.5
