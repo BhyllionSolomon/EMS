@@ -6,6 +6,7 @@ from app.schemas.academic import (
     LevelResponse,
     SessionResponse,
 )
+from app.schemas.student_document import DocumentResponse
 
 
 class StudentBase(BaseModel):
@@ -39,6 +40,13 @@ class StudentResponse(StudentBase):
     programme: ProgrammeResponse | None = None
     level: LevelResponse | None = None
     academic_session: SessionResponse | None = None
+
+    # Who this record belongs to / who created it, so the UI can
+    # tell a student self-submission apart from an admin-assisted one.
+    user_id: int | None = None
+    created_by_id: int | None = None
+
+    documents: list[DocumentResponse] = []
 
     class Config:
         from_attributes = True
