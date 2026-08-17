@@ -1341,8 +1341,9 @@ function StudentManagement({
 }) {
   const isStudentRole = currentUser?.role === "student";
 
-  const [mode, setMode] =
-    useState("list");
+  const [mode, setMode] = useState(
+    () => (isStudentRole ? "add" : "list")
+  );
 
   const [search, setSearch] =
     useState("");
