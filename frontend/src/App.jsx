@@ -25,6 +25,9 @@ import {
   UserPlus,
   Trash2,
   ShieldCheck,
+  Building2,
+  Layers,
+  Settings,
 } from "lucide-react";
 
 const API_URL = "https://ems-backend-app-2ju7.onrender.com";
@@ -587,6 +590,24 @@ function Dashboard({
             </button>
           )}
 
+          {currentUser?.role === "admin" && (
+            <button
+              className={`nav-item ${
+                assessmentView === "academic-setup"
+                  ? "active"
+                  : ""
+              }`}
+              type="button"
+              onClick={() => {
+                setAssessmentView("academic-setup");
+                setSidebarOpen(false);
+              }}
+            >
+              <GraduationCap size={19} />
+              Academic Setup
+            </button>
+          )}
+
           {currentUser?.role !== "student" && (
             <button
               className={`nav-item ${
@@ -656,6 +677,9 @@ function Dashboard({
                 "users" ? (
                 <UserCog size={25} />
               ) : assessmentView ===
+                "academic-setup" ? (
+                <GraduationCap size={25} />
+              ) : assessmentView ===
                 "sessions" ? (
                 <BookOpen size={25} />
               ) : (
@@ -684,6 +708,9 @@ function Dashboard({
                     "users"
                   ? "User Management"
                   : assessmentView ===
+                    "academic-setup"
+                  ? "Academic Setup"
+                  : assessmentView ===
                     "sessions"
                   ? "Academic Sessions"
                   : "Dashboard"}
@@ -708,6 +735,9 @@ function Dashboard({
                   : assessmentView ===
                     "users"
                   ? "Create and manage assessor & supervisor accounts"
+                  : assessmentView ===
+                    "academic-setup"
+                  ? "Manage departments, programmes, levels & sessions"
                   : assessmentView ===
                     "sessions"
                   ? "Browse students with results by academic session"
@@ -809,6 +839,12 @@ function Dashboard({
               users={users}
               onLogout={onLogout}
               onSaved={handleStudentSaved}
+            />
+          ) : assessmentView ===
+            "academic-setup" ? (
+            <AcademicSetup
+              token={token}
+              onLogout={onLogout}
             />
           ) : assessmentView ===
             "sessions" ? (
@@ -4926,6 +4962,809 @@ function AdminUsers({ token, users, onLogout, onSaved }) {
         )}
       </section>
     </div>
+  );
+}
+
+/* =====================================================
+   ACADEMIC SETUP (departments, programmes, levels, sessions)
+===================================================== */
+
+function AcademicSetup({ token, onLogout }) {
+  const [departments, setDepartments] = useState([]);
+  const [programmes, setProgrammes] = useState([]);
+  const [levels, setLevels] = useState([]);
+  const [sessions, setSessions] = useState([]);
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const authHeader = {
+    headers: { Authorization: `Bearer ${token}` },
+  };
+
+  async function loadAll() {
+    setLoading(true);
+    setError("");
+
+    const results = await Promise.allSettled([
+      axios.get(`${API_URL}/departments/`, authHeader),
+      axios.get(`${API_URL}/programmes/`, authHeader),
+      axios.get(`${API_URL}/levels/`, authHeader),
+      axios.get(`${API_URL}/sessions/`, authHeader),
+    ]);
+
+    const [deptRes, progRes, levelRes, sessRes] = results;
+
+    if (deptRes.status === "fulfilled") {
+      setDepartments(extractArray(deptRes.value.data, "departments"));
+    }
+    if (progRes.status === "fulfilled") {
+      setProgrammes(extractArray(progRes.value.data, "programmes"));
+    }
+    if (levelRes.status === "fulfilled") {
+      setLevels(extractArray(levelRes.value.data, "levels"));
+    }
+    if (sessRes.status === "fulfilled") {
+      setSessions(extractArray(sessRes.value.data, "sessions"));
+    }
+
+    const unauthorized = results.some(
+      (r) =>
+        r.status === "rejected" &&
+        r.reason?.response?.status === 401
+    );
+
+    if (unauthorized) {
+      onLogout();
+      return;
+    }
+
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadAll();
+  }, []);
+
+  function flashSuccess(message) {
+    setSuccess(message);
+    setTimeout(() => setSuccess(""), 2500);
+  }
+
+  function handleApiError(err) {
+    console.error("ACADEMIC SETUP ERROR:", err);
+
+    if ([401, 403].includes(err.response?.status)) {
+      onLogout();
+      return true;
+    }
+
+    const detail = err.response?.data?.detail;
+    setError(
+      Array.isArray(detail)
+        ? detail.map((d) => d.msg).join(", ")
+        : detail || "Something went wrong."
+    );
+
+    return false;
+  }
+
+  if (loading) {
+    return (
+      <div className="student-page">
+        <section className="panel">
+          <div className="empty-state">
+            <div className="loading-spinner" />
+            <p>Loading academic setup...</p>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <div className="student-page">
+      {error && <div className="error">{error}</div>}
+      {success && (
+        <div className="success">
+          <CheckCircle size={18} />
+          {success}
+        </div>
+      )}
+
+      <DepartmentSection
+        departments={departments}
+        onError={handleApiError}
+        onSuccess={flashSuccess}
+        onClearError={() => setError("")}
+        reload={loadAll}
+        token={token}
+        authHeader={authHeader}
+      />
+
+      <ProgrammeSection
+        programmes={programmes}
+        departments={departments}
+        onError={handleApiError}
+        onSuccess={flashSuccess}
+        onClearError={() => setError("")}
+        reload={loadAll}
+        authHeader={authHeader}
+      />
+
+      <LevelSection
+        levels={levels}
+        onError={handleApiError}
+        onSuccess={flashSuccess}
+        onClearError={() => setError("")}
+        reload={loadAll}
+        authHeader={authHeader}
+      />
+
+      <SessionSection
+        sessions={sessions}
+        onError={handleApiError}
+        onSuccess={flashSuccess}
+        onClearError={() => setError("")}
+        reload={loadAll}
+        authHeader={authHeader}
+      />
+    </div>
+  );
+}
+
+function DepartmentSection({
+  departments,
+  onError,
+  onSuccess,
+  onClearError,
+  reload,
+  authHeader,
+}) {
+  const [name, setName] = useState("");
+  const [code, setCode] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+
+  async function handleCreate(event) {
+    event.preventDefault();
+    if (saving || !name.trim() || !code.trim()) return;
+
+    onClearError();
+
+    try {
+      setSaving(true);
+
+      await axios.post(
+        `${API_URL}/departments/`,
+        { name: name.trim(), code: code.trim() },
+        authHeader
+      );
+
+      onSuccess(`Department "${name.trim()}" created.`);
+      setName("");
+      setCode("");
+      await reload();
+    } catch (err) {
+      onError(err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(dept) {
+    if (
+      !window.confirm(
+        `Delete "${dept.name}"? This also removes any programmes under it, and will fail if students are already attached.`
+      )
+    )
+      return;
+
+    onClearError();
+    setDeletingId(dept.id);
+
+    try {
+      await axios.delete(
+        `${API_URL}/departments/${dept.id}`,
+        authHeader
+      );
+      onSuccess(`Department "${dept.name}" deleted.`);
+      await reload();
+    } catch (err) {
+      onError(err);
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  return (
+    <section className="panel">
+      <div className="panel-header">
+        <div>
+          <h2>Departments</h2>
+          <p>The top-level unit programmes belong to.</p>
+        </div>
+      </div>
+
+      <form
+        onSubmit={handleCreate}
+        className="student-form-grid"
+        style={{ marginBottom: "16px" }}
+      >
+        <div className="input-group">
+          <label>Name</label>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Computing Science"
+          />
+        </div>
+
+        <div className="input-group">
+          <label>Code</label>
+          <input
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="e.g. CSD"
+          />
+        </div>
+
+        <button
+          type="submit"
+          className="ap-save-button"
+          disabled={saving || !name.trim() || !code.trim()}
+          style={{ alignSelf: "flex-end" }}
+        >
+          {saving ? <span className="spinner" /> : <Plus size={16} />}
+          Add
+        </button>
+      </form>
+
+      {departments.length === 0 ? (
+        <div className="empty-state">
+          <p>No departments yet.</p>
+        </div>
+      ) : (
+        <div className="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Code</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {departments.map((dept) => (
+                <tr key={dept.id}>
+                  <td>{dept.name}</td>
+                  <td>{dept.code}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="ap-secondary-button"
+                      onClick={() => handleDelete(dept)}
+                      disabled={deletingId === dept.id}
+                    >
+                      {deletingId === dept.id ? (
+                        <span className="spinner" />
+                      ) : (
+                        <Trash2 size={15} />
+                      )}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ProgrammeSection({
+  programmes,
+  departments,
+  onError,
+  onSuccess,
+  onClearError,
+  reload,
+  authHeader,
+}) {
+  const [name, setName] = useState("");
+  const [code, setCode] = useState("");
+  const [departmentId, setDepartmentId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+
+  async function handleCreate(event) {
+    event.preventDefault();
+    if (saving || !name.trim() || !code.trim() || !departmentId)
+      return;
+
+    onClearError();
+
+    try {
+      setSaving(true);
+
+      await axios.post(
+        `${API_URL}/programmes/`,
+        {
+          name: name.trim(),
+          code: code.trim(),
+          department_id: Number(departmentId),
+        },
+        authHeader
+      );
+
+      onSuccess(`Programme "${name.trim()}" created.`);
+      setName("");
+      setCode("");
+      await reload();
+    } catch (err) {
+      onError(err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(programme) {
+    if (!window.confirm(`Delete "${programme.name}"?`)) return;
+
+    onClearError();
+    setDeletingId(programme.id);
+
+    try {
+      await axios.delete(
+        `${API_URL}/programmes/${programme.id}`,
+        authHeader
+      );
+      onSuccess(`Programme "${programme.name}" deleted.`);
+      await reload();
+    } catch (err) {
+      onError(err);
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  function departmentName(id) {
+    return (
+      departments.find((d) => d.id === id)?.name || `#${id}`
+    );
+  }
+
+  return (
+    <section className="panel" style={{ marginTop: "22px" }}>
+      <div className="panel-header">
+        <div>
+          <h2>Programmes</h2>
+          <p>Courses of study within a department.</p>
+        </div>
+      </div>
+
+      <form
+        onSubmit={handleCreate}
+        className="student-form-grid"
+        style={{ marginBottom: "16px" }}
+      >
+        <div className="input-group">
+          <label>Name</label>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Computer Science"
+          />
+        </div>
+
+        <div className="input-group">
+          <label>Code</label>
+          <input
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="e.g. CSC"
+          />
+        </div>
+
+        <div className="input-group">
+          <label>Department</label>
+          <select
+            value={departmentId}
+            onChange={(e) => setDepartmentId(e.target.value)}
+            disabled={departments.length === 0}
+          >
+            <option value="">
+              {departments.length === 0
+                ? "Add a department first"
+                : "Select department"}
+            </option>
+            {departments.map((dept) => (
+              <option key={dept.id} value={dept.id}>
+                {dept.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <button
+          type="submit"
+          className="ap-save-button"
+          disabled={
+            saving ||
+            !name.trim() ||
+            !code.trim() ||
+            !departmentId
+          }
+          style={{ alignSelf: "flex-end" }}
+        >
+          {saving ? <span className="spinner" /> : <Plus size={16} />}
+          Add
+        </button>
+      </form>
+
+      {programmes.length === 0 ? (
+        <div className="empty-state">
+          <p>No programmes yet.</p>
+        </div>
+      ) : (
+        <div className="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Code</th>
+                <th>Department</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {programmes.map((programme) => (
+                <tr key={programme.id}>
+                  <td>{programme.name}</td>
+                  <td>{programme.code}</td>
+                  <td>
+                    {departmentName(programme.department_id)}
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="ap-secondary-button"
+                      onClick={() => handleDelete(programme)}
+                      disabled={deletingId === programme.id}
+                    >
+                      {deletingId === programme.id ? (
+                        <span className="spinner" />
+                      ) : (
+                        <Trash2 size={15} />
+                      )}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function LevelSection({
+  levels,
+  onError,
+  onSuccess,
+  onClearError,
+  reload,
+  authHeader,
+}) {
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+
+  async function handleCreate(event) {
+    event.preventDefault();
+    if (saving || !name.trim()) return;
+
+    onClearError();
+
+    try {
+      setSaving(true);
+
+      await axios.post(
+        `${API_URL}/levels/`,
+        { name: name.trim() },
+        authHeader
+      );
+
+      onSuccess(`Level "${name.trim()}" created.`);
+      setName("");
+      await reload();
+    } catch (err) {
+      onError(err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(level) {
+    if (!window.confirm(`Delete "${level.name}"?`)) return;
+
+    onClearError();
+    setDeletingId(level.id);
+
+    try {
+      await axios.delete(
+        `${API_URL}/levels/${level.id}`,
+        authHeader
+      );
+      onSuccess(`Level "${level.name}" deleted.`);
+      await reload();
+    } catch (err) {
+      onError(err);
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  return (
+    <section className="panel" style={{ marginTop: "22px" }}>
+      <div className="panel-header">
+        <div>
+          <h2>Levels</h2>
+          <p>e.g. 100 Level, 200 Level, 400 Level.</p>
+        </div>
+      </div>
+
+      <form
+        onSubmit={handleCreate}
+        className="student-form-grid"
+        style={{ marginBottom: "16px" }}
+      >
+        <div className="input-group">
+          <label>Name</label>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. 400 Level"
+          />
+        </div>
+
+        <button
+          type="submit"
+          className="ap-save-button"
+          disabled={saving || !name.trim()}
+          style={{ alignSelf: "flex-end" }}
+        >
+          {saving ? <span className="spinner" /> : <Plus size={16} />}
+          Add
+        </button>
+      </form>
+
+      {levels.length === 0 ? (
+        <div className="empty-state">
+          <p>No levels yet.</p>
+        </div>
+      ) : (
+        <div className="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {levels.map((level) => (
+                <tr key={level.id}>
+                  <td>{level.name}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="ap-secondary-button"
+                      onClick={() => handleDelete(level)}
+                      disabled={deletingId === level.id}
+                    >
+                      {deletingId === level.id ? (
+                        <span className="spinner" />
+                      ) : (
+                        <Trash2 size={15} />
+                      )}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SessionSection({
+  sessions,
+  onError,
+  onSuccess,
+  onClearError,
+  reload,
+  authHeader,
+}) {
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const [settingCurrentId, setSettingCurrentId] = useState(null);
+
+  async function handleCreate(event) {
+    event.preventDefault();
+    if (saving || !name.trim()) return;
+
+    onClearError();
+
+    try {
+      setSaving(true);
+
+      await axios.post(
+        `${API_URL}/sessions/`,
+        { name: name.trim() },
+        authHeader
+      );
+
+      onSuccess(`Session "${name.trim()}" created.`);
+      setName("");
+      await reload();
+    } catch (err) {
+      onError(err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSetCurrent(session) {
+    onClearError();
+    setSettingCurrentId(session.id);
+
+    try {
+      await axios.put(
+        `${API_URL}/sessions/${session.id}/set-current`,
+        {},
+        authHeader
+      );
+      onSuccess(`"${session.name}" is now the current session.`);
+      await reload();
+    } catch (err) {
+      onError(err);
+    } finally {
+      setSettingCurrentId(null);
+    }
+  }
+
+  async function handleDelete(session) {
+    if (!window.confirm(`Delete "${session.name}"?`)) return;
+
+    onClearError();
+    setDeletingId(session.id);
+
+    try {
+      await axios.delete(
+        `${API_URL}/sessions/${session.id}`,
+        authHeader
+      );
+      onSuccess(`Session "${session.name}" deleted.`);
+      await reload();
+    } catch (err) {
+      onError(err);
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  return (
+    <section className="panel" style={{ marginTop: "22px" }}>
+      <div className="panel-header">
+        <div>
+          <h2>Academic Sessions</h2>
+          <p>e.g. 2025-2026. Mark one as current.</p>
+        </div>
+      </div>
+
+      <form
+        onSubmit={handleCreate}
+        className="student-form-grid"
+        style={{ marginBottom: "16px" }}
+      >
+        <div className="input-group">
+          <label>Name</label>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. 2025-2026"
+          />
+        </div>
+
+        <button
+          type="submit"
+          className="ap-save-button"
+          disabled={saving || !name.trim()}
+          style={{ alignSelf: "flex-end" }}
+        >
+          {saving ? <span className="spinner" /> : <Plus size={16} />}
+          Add
+        </button>
+      </form>
+
+      {sessions.length === 0 ? (
+        <div className="empty-state">
+          <p>No academic sessions yet.</p>
+        </div>
+      ) : (
+        <div className="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {sessions.map((session) => (
+                <tr key={session.id}>
+                  <td>{session.name}</td>
+                  <td>
+                    {session.is_current ? (
+                      <span className="badge badge-success">
+                        Current
+                      </span>
+                    ) : (
+                      <span className="badge">—</span>
+                    )}
+                  </td>
+                  <td
+                    style={{
+                      display: "flex",
+                      gap: "8px",
+                      justifyContent: "flex-end",
+                    }}
+                  >
+                    {!session.is_current && (
+                      <button
+                        type="button"
+                        className="ap-secondary-button"
+                        onClick={() => handleSetCurrent(session)}
+                        disabled={
+                          settingCurrentId === session.id
+                        }
+                      >
+                        {settingCurrentId === session.id ? (
+                          <span className="spinner" />
+                        ) : (
+                          "Set Current"
+                        )}
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      className="ap-secondary-button"
+                      onClick={() => handleDelete(session)}
+                      disabled={deletingId === session.id}
+                    >
+                      {deletingId === session.id ? (
+                        <span className="spinner" />
+                      ) : (
+                        <Trash2 size={15} />
+                      )}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 
