@@ -75,6 +75,8 @@ function App() {
     localStorage.getItem("access_token")
   );
 
+  const [authView, setAuthView] = useState("login");
+
   const [theme, setTheme] = useState(
     localStorage.getItem("theme") || "light"
   );
@@ -92,12 +94,25 @@ function App() {
   function handleLogout() {
     localStorage.removeItem("access_token");
     setToken(null);
+    setAuthView("login");
   }
 
   if (!token) {
+    if (authView === "signup") {
+      return (
+        <StudentSignup
+          onSignedUp={handleLogin}
+          onSwitchToLogin={() => setAuthView("login")}
+          theme={theme}
+          onThemeChange={setTheme}
+        />
+      );
+    }
+
     return (
       <Login
         onLogin={handleLogin}
+        onSwitchToSignup={() => setAuthView("signup")}
         theme={theme}
         onThemeChange={setTheme}
       />
@@ -148,6 +163,7 @@ function ThemeSwitcher({
 
 function Login({
   onLogin,
+  onSwitchToSignup,
   theme,
   onThemeChange,
 }) {
@@ -262,6 +278,186 @@ function Login({
             )}
           </button>
         </form>
+
+        <button
+          type="button"
+          className="login-link-button"
+          onClick={onSwitchToSignup}
+        >
+          New student? Create an account
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* =====================================================
+   STUDENT SIGN UP
+===================================================== */
+
+function StudentSignup({
+  onSignedUp,
+  onSwitchToLogin,
+  theme,
+  onThemeChange,
+}) {
+  const [fullName, setFullName] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleSignup(event) {
+    event.preventDefault();
+    setError("");
+
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const response = await axios.post(
+        `${API_URL}/auth/student-signup`,
+        {
+          username: username.trim(),
+          password,
+          full_name: fullName.trim(),
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      onSignedUp(response.data.access_token);
+    } catch (err) {
+      console.error("SIGNUP ERROR:", err);
+
+      const detail = err.response?.data?.detail;
+
+      if (Array.isArray(detail)) {
+        setError(detail.map((item) => item.msg).join(", "));
+      } else if (err.response) {
+        setError(detail || "Unable to create your account.");
+      } else {
+        setError("Unable to connect to the server.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="login-page">
+      <div className="login-theme">
+        <ThemeSwitcher
+          theme={theme}
+          onThemeChange={onThemeChange}
+        />
+      </div>
+
+      <div className="login-card">
+        <div className="login-icon">
+          <GraduationCap size={42} />
+          <Sparkles className="sparkle-icon" size={18} />
+        </div>
+
+        <h1>Student Sign Up</h1>
+
+        <p className="login-subtitle">
+          Create your account to submit your project details
+        </p>
+
+        <form onSubmit={handleSignup}>
+          <div className="input-group">
+            <label>Full Name</label>
+
+            <input
+              type="text"
+              value={fullName}
+              onChange={(event) =>
+                setFullName(event.target.value)
+              }
+              placeholder="Enter your full name"
+              required
+            />
+          </div>
+
+          <div className="input-group">
+            <label>Username</label>
+
+            <input
+              type="text"
+              value={username}
+              onChange={(event) =>
+                setUsername(event.target.value)
+              }
+              placeholder="e.g. your matriculation number"
+              required
+            />
+          </div>
+
+          <div className="input-group">
+            <label>Password</label>
+
+            <input
+              type="password"
+              value={password}
+              onChange={(event) =>
+                setPassword(event.target.value)
+              }
+              placeholder="At least 6 characters"
+              required
+            />
+          </div>
+
+          <div className="input-group">
+            <label>Confirm Password</label>
+
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(event) =>
+                setConfirmPassword(event.target.value)
+              }
+              placeholder="Re-enter your password"
+              required
+            />
+          </div>
+
+          {error && (
+            <div className="login-error">{error}</div>
+          )}
+
+          <button type="submit" disabled={loading}>
+            {loading ? (
+              <>
+                <span className="spinner" />
+                Creating account...
+              </>
+            ) : (
+              "Create Account"
+            )}
+          </button>
+        </form>
+
+        <button
+          type="button"
+          className="login-link-button"
+          onClick={onSwitchToLogin}
+        >
+          Already have an account? Sign in
+        </button>
       </div>
     </div>
   );
@@ -6946,6 +7142,24 @@ const ASSESSMENT_STYLES = `
 }
 
 .login-register-link:hover {
+  text-decoration: underline;
+}
+
+.login-link-button {
+  display: block;
+  width: 100%;
+  margin-top: 18px;
+  padding: 0;
+  font-size: 13px;
+  font-family: inherit;
+  color: #ddd6fe;
+  background: transparent;
+  border: none;
+  text-align: center;
+  cursor: pointer;
+}
+
+.login-link-button:hover {
   text-decoration: underline;
 }
 `;
