@@ -85,15 +85,24 @@ def student_signup(
             ),
         )
 
-    user = create_user(
-        db,
-        UserCreate(
-            username=signup.username,
-            password=signup.password,
-            full_name=signup.full_name,
-            role="student",
-        ),
-    )
+    try:
+        user = create_user(
+            db,
+            UserCreate(
+                username=signup.username,
+                password=signup.password,
+                full_name=signup.full_name,
+                role="student",
+            ),
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "That username is already taken. If this is your "
+                "account, use Sign In instead."
+            ),
+        )
 
     token = create_access_token(subject=str(user.id))
 
