@@ -57,10 +57,16 @@ def create(
             detail="Username already exists",
         )
 
-    return create_user(
-        db,
-        user,
-    )
+    try:
+        return create_user(
+            db,
+            user,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
 
 
 @router.get(
