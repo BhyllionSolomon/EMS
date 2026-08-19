@@ -1,3 +1,4 @@
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.user import User
@@ -55,7 +56,21 @@ def create_user(
     )
 
     db.add(user)
-    db.commit()
+
+    try:
+        db.commit()
+    except IntegrityError:
+        # Covers the case a pre-check can miss: a soft-deleted user
+        # still permanently occupies their username at the database
+        # level (get_user_by_username excludes deleted users, so it
+        # can report a username as free when it isn't), plus any
+        # genuine race between two concurrent signups/creations.
+        db.rollback()
+
+        raise ValueError(
+            "That username is already taken."
+        )
+
     db.refresh(user)
 
     return user
