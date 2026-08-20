@@ -1062,6 +1062,7 @@ function Dashboard({
                 <StudentDashboardOverview
                   token={token}
                   onLogout={onLogout}
+                  currentUser={currentUser}
                 />
               ) : (
                 <>
@@ -6361,8 +6362,9 @@ function getStudentSession(
    STUDENT DASHBOARD OVERVIEW
 ===================================================== */
 
-function StudentDashboardOverview({ token, onLogout }) {
+function StudentDashboardOverview({ token, onLogout, currentUser }) {
   const [report, setReport] = useState(null);
+  const [studentRecord, setStudentRecord] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notSubmitted, setNotSubmitted] = useState(false);
@@ -6375,39 +6377,51 @@ function StudentDashboardOverview({ token, onLogout }) {
       setError("");
       setNotSubmitted(false);
 
-      try {
-        const response = await axios.get(
-          `${API_URL}/assessments/me`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
+      const authHeader = {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      };
 
-        if (isMounted) setReport(response.data);
-      } catch (err) {
-        if (!isMounted) return;
+      const results = await Promise.allSettled([
+        axios.get(`${API_URL}/students/me`, authHeader),
+        axios.get(`${API_URL}/assessments/me`, authHeader),
+      ]);
 
-        if (
-          [401, 403].includes(
-            err.response?.status
-          )
-        ) {
-          onLogout();
-          return;
-        }
+      if (!isMounted) return;
 
-        if (err.response?.status === 404) {
-          setNotSubmitted(true);
-        } else {
-          setError(
-            "Unable to load your assessment status."
-          );
-        }
-      } finally {
-        if (isMounted) setLoading(false);
+      const [studentResult, reportResult] = results;
+
+      const unauthorized = results.some(
+        (result) =>
+          result.status === "rejected" &&
+          result.reason?.response?.status === 401
+      );
+
+      if (unauthorized) {
+        onLogout();
+        return;
       }
+
+      if (studentResult.status === "fulfilled") {
+        setStudentRecord(studentResult.value.data);
+      }
+
+      if (reportResult.status === "fulfilled") {
+        setReport(reportResult.value.data);
+      } else if (reportResult.reason?.response?.status === 404) {
+        setNotSubmitted(true);
+      } else if (studentResult.status === "rejected") {
+        // Neither call worked -- most likely they genuinely haven't
+        // submitted their details yet.
+        setNotSubmitted(true);
+      } else {
+        setError(
+          "Unable to load your assessment status."
+        );
+      }
+
+      setLoading(false);
     }
 
     load();
@@ -6431,19 +6445,39 @@ function StudentDashboardOverview({ token, onLogout }) {
     );
   }
 
+  const welcomeName =
+    studentRecord?.full_name ||
+    currentUser?.full_name ||
+    "there";
+
   if (notSubmitted) {
     return (
-      <section className="panel">
-        <div className="empty-state">
-          <ClipboardCheck size={35} />
-          <h3>No submission yet</h3>
-          <p>
-            Go to Students to submit your
-            project details before
-            assessment can begin.
+      <>
+        <section
+          className="panel"
+          style={{ marginBottom: "22px" }}
+        >
+          <h2 style={{ margin: 0 }}>
+            Welcome, {welcomeName}
+          </h2>
+          <p style={{ margin: "6px 0 0" }}>
+            You haven't submitted your project
+            details yet.
           </p>
-        </div>
-      </section>
+        </section>
+
+        <section className="panel">
+          <div className="empty-state">
+            <ClipboardCheck size={35} />
+            <h3>No submission yet</h3>
+            <p>
+              Go to Students to submit your
+              project details before
+              assessment can begin.
+            </p>
+          </div>
+        </section>
+      </>
     );
   }
 
@@ -6480,6 +6514,52 @@ function StudentDashboardOverview({ token, onLogout }) {
 
   return (
     <>
+      <section
+        className="panel"
+        style={{ marginBottom: "22px" }}
+      >
+        <h2 style={{ margin: 0 }}>
+          Welcome, {welcomeName}
+        </h2>
+
+        {studentRecord ? (
+          <div
+            className="summary-row"
+            style={{ marginTop: "14px" }}
+          >
+            <div className="summary-item">
+              <Users size={20} />
+              <span>Matric Number</span>
+              <strong>
+                {studentRecord.matric_number}
+              </strong>
+            </div>
+
+            <div className="summary-item">
+              <BookOpen size={20} />
+              <span>Programme</span>
+              <strong>
+                {studentRecord.programme?.name ||
+                  "—"}
+              </strong>
+            </div>
+
+            <div className="summary-item">
+              <ClipboardCheck size={20} />
+              <span>Academic Session</span>
+              <strong>
+                {studentRecord.academic_session
+                  ?.name || "—"}
+              </strong>
+            </div>
+          </div>
+        ) : (
+          <p style={{ margin: "6px 0 0" }}>
+            Here's your assessment status so far.
+          </p>
+        )}
+      </section>
+
       <div className="stat-cards">
         <StatCard
           title="Assessment"
