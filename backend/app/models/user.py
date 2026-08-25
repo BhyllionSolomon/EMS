@@ -1,6 +1,6 @@
-from typing import List
+from typing import List, Optional
 
-from sqlalchemy import Boolean, String
+from sqlalchemy import Boolean, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -34,6 +34,16 @@ class User(Base, TimestampMixin):
         default="assessor",
     )
 
+    # Which department this account belongs to -- currently only used
+    # to scope SIWES coordinators (they only see students in their own
+    # department). Nullable/unused for other roles for now; the scoping
+    # model is deliberately department-based from the start so it holds
+    # up once other departments start using this system, not just CSDT.
+    department_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("departments.id"),
+        nullable=True,
+    )
+
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
@@ -45,6 +55,8 @@ class User(Base, TimestampMixin):
         default=False,
         nullable=False,
     )
+
+    department: Mapped[Optional["Department"]] = relationship()
 
     assessments: Mapped[List["Assessment"]] = relationship(
         back_populates="assessor"
