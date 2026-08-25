@@ -16,9 +16,17 @@ from app.api.v1 import sessions
 from app.api.v1 import assessments
 from app.api.v1 import users
 from app.api.v1 import audit
+from app.api.v1 import siwes
 
 from app.models.user import User
 from app.models.student_document import StudentDocument
+from app.models.siwes import (
+    SiwesPlacement,
+    SiwesLogEntry,
+    SiwesLogDocument,
+    SiwesCoordinatorComment,
+    SiwesAssessment,
+)
 from app.utils.security import hash_password
 
 
@@ -52,6 +60,7 @@ app.include_router(assessments.router)
 app.include_router(users.router)
 app.include_router(audit.router)
 app.include_router(imports.router)
+app.include_router(siwes.router)
 
 
 @app.on_event("startup")
