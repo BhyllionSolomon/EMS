@@ -53,6 +53,7 @@ def create_user(
         ),
         full_name=user_data.full_name,
         role=user_data.role,
+        department_id=user_data.department_id,
     )
 
     db.add(user)
