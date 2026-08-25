@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel
 
@@ -8,8 +8,13 @@ class UserCreate(BaseModel):
     password: str
     full_name: str
     role: Literal[
-        "admin", "assessor", "external_supervisor", "student"
+        "admin",
+        "assessor",
+        "external_supervisor",
+        "student",
+        "siwes_coordinator",
     ] = "assessor"
+    department_id: Optional[int] = None
 
 
 class UserResponse(BaseModel):
@@ -17,6 +22,7 @@ class UserResponse(BaseModel):
     username: str
     full_name: str
     role: str
+    department_id: Optional[int] = None
     is_active: bool
     is_deleted: bool
 
