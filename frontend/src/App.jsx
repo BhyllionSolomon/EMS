@@ -28,6 +28,9 @@ import {
   Building2,
   Layers,
   Settings,
+  Briefcase,
+  Calendar,
+  MessageSquare,
 } from "lucide-react";
 
 const API_URL = "https://ems-backend-app-2ju7.onrender.com";
@@ -821,6 +824,22 @@ function Dashboard({
               Sessions
             </button>
           )}
+
+          {currentUser?.role !== "external_supervisor" && (
+            <button
+              className={`nav-item ${
+                assessmentView === "siwes" ? "active" : ""
+              }`}
+              type="button"
+              onClick={() => {
+                setAssessmentView("siwes");
+                setSidebarOpen(false);
+              }}
+            >
+              <Briefcase size={19} />
+              SIWES
+            </button>
+          )}
         </nav>
         <div className="sidebar-footer">
           <button
@@ -878,6 +897,9 @@ function Dashboard({
               ) : assessmentView ===
                 "sessions" ? (
                 <BookOpen size={25} />
+              ) : assessmentView ===
+                "siwes" ? (
+                <Briefcase size={25} />
               ) : (
                 <BarChart3 size={25} />
               )}
@@ -909,6 +931,9 @@ function Dashboard({
                   : assessmentView ===
                     "sessions"
                   ? "Academic Sessions"
+                  : assessmentView ===
+                    "siwes"
+                  ? "SIWES"
                   : "Dashboard"}
               </h1>
 
@@ -937,6 +962,9 @@ function Dashboard({
                   : assessmentView ===
                     "sessions"
                   ? "Browse students with results by academic session"
+                  : assessmentView ===
+                    "siwes"
+                  ? "Industrial training placement, logbook & scoring"
                   : "Assessment Management Overview"}
               </p>
             </div>
@@ -1049,6 +1077,14 @@ function Dashboard({
               students={students}
               assessments={assessments}
               onLogout={onLogout}
+            />
+          ) : assessmentView ===
+            "siwes" ? (
+            <SiwesPage
+              token={token}
+              students={students}
+              onLogout={onLogout}
+              currentUser={currentUser}
             />
           ) : (
             <>
@@ -6204,6 +6240,1458 @@ function SessionsView({ token, students, assessments, onLogout }) {
           )}
         </section>
       )}
+    </div>
+  );
+}
+
+/* =====================================================
+   SIWES MODULE
+===================================================== */
+
+const EMPTY_PLACEMENT_FORM = {
+  company_name: "",
+  company_address: "",
+  industry_supervisor_name: "",
+  start_date: "",
+  end_date: "",
+};
+
+const EMPTY_LOG_FORM = {
+  week_start_date: "",
+  week_end_date: "",
+  description: "",
+};
+
+const SIWES_RUBRIC = [
+  { key: "originality", label: "Originality of Write-up", maximum: 15 },
+  { key: "clarity_of_writeup", label: "Clarity of Write-up", maximum: 10 },
+  { key: "technicality", label: "Technicality", maximum: 10 },
+  { key: "dressing_grammar", label: "Dressing / Grammar", maximum: 10 },
+  {
+    key: "figures_pictures_titles",
+    label: "Figures, Pictures & Titles",
+    maximum: 10,
+  },
+  { key: "project_goal", label: "Project Goal", maximum: 15 },
+  { key: "report_formatting", label: "Report Formatting", maximum: 15 },
+  { key: "reference_apa", label: "Reference (APA)", maximum: 15 },
+];
+
+const SIWES_MAX_TOTAL = SIWES_RUBRIC.reduce(
+  (sum, item) => sum + item.maximum,
+  0
+);
+
+function SiwesPage({ token, students, onLogout, currentUser }) {
+  if (currentUser?.role === "student") {
+    return <SiwesStudentView token={token} onLogout={onLogout} />;
+  }
+
+  if (currentUser?.role === "siwes_coordinator") {
+    return <SiwesCoordinatorView token={token} onLogout={onLogout} />;
+  }
+
+  return (
+    <SiwesStaffView
+      token={token}
+      students={students}
+      onLogout={onLogout}
+    />
+  );
+}
+
+/* -----------------------------------------------------
+   Shared: placement creation form
+------------------------------------------------------ */
+
+function SiwesPlacementForm({ token, studentId, onLogout, onCreated }) {
+  const [form, setForm] = useState(EMPTY_PLACEMENT_FORM);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+
+    if (saving) return;
+
+    setError("");
+
+    if (!form.company_name.trim() || !form.company_address.trim()) {
+      setError("Please enter the company name and address.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const response = await axios.post(
+        `${API_URL}/siwes/placements/student/${studentId}`,
+        {
+          company_name: form.company_name.trim(),
+          company_address: form.company_address.trim(),
+          industry_supervisor_name:
+            form.industry_supervisor_name.trim() || null,
+          start_date: form.start_date || null,
+          end_date: form.end_date || null,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      onCreated(response.data);
+    } catch (err) {
+      console.error("SIWES PLACEMENT CREATE ERROR:", err);
+
+      if ([401, 403].includes(err.response?.status)) {
+        onLogout();
+        return;
+      }
+
+      setError(
+        err.response?.data?.detail ||
+          "Unable to save the placement details."
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="panel">
+      <div className="panel-header">
+        <div>
+          <h2>Register SIWES Placement</h2>
+          <p>Where the industrial training is taking place.</p>
+        </div>
+        <Briefcase size={23} />
+      </div>
+
+      {error && <div className="error">{error}</div>}
+
+      <form onSubmit={handleSubmit} className="student-form-grid">
+        <div className="input-group" style={{ gridColumn: "1 / -1" }}>
+          <label>Company Name *</label>
+          <input
+            value={form.company_name}
+            onChange={(e) =>
+              setForm({ ...form, company_name: e.target.value })
+            }
+            placeholder="e.g. Faitheroic Global Team"
+          />
+        </div>
+
+        <div className="input-group" style={{ gridColumn: "1 / -1" }}>
+          <label>Company Address *</label>
+          <input
+            value={form.company_address}
+            onChange={(e) =>
+              setForm({ ...form, company_address: e.target.value })
+            }
+            placeholder="Full address"
+          />
+        </div>
+
+        <div className="input-group">
+          <label>Industry Supervisor's Name</label>
+          <input
+            value={form.industry_supervisor_name}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                industry_supervisor_name: e.target.value,
+              })
+            }
+            placeholder="e.g. Miss V.B Olorode"
+          />
+        </div>
+
+        <div className="input-group">
+          <label>Start Date</label>
+          <input
+            type="date"
+            value={form.start_date}
+            onChange={(e) =>
+              setForm({ ...form, start_date: e.target.value })
+            }
+          />
+        </div>
+
+        <div className="input-group">
+          <label>End Date</label>
+          <input
+            type="date"
+            value={form.end_date}
+            onChange={(e) =>
+              setForm({ ...form, end_date: e.target.value })
+            }
+          />
+        </div>
+
+        <div style={{ alignSelf: "end" }}>
+          <button
+            type="submit"
+            className="ap-save-button"
+            disabled={saving}
+          >
+            {saving ? (
+              <span className="spinner" />
+            ) : (
+              <>
+                <Save size={16} />
+                Save Placement
+              </>
+            )}
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+/* -----------------------------------------------------
+   Shared: placement summary (read-only)
+------------------------------------------------------ */
+
+function SiwesPlacementSummary({ placement }) {
+  return (
+    <section className="panel">
+      <div className="panel-header">
+        <div>
+          <h2>Placement Details</h2>
+          <p>Locked once registered.</p>
+        </div>
+        <Briefcase size={23} />
+      </div>
+
+      <div className="summary-row">
+        <div className="summary-item">
+          <Building2 size={20} />
+          <span>Company</span>
+          <strong>{placement.company_name}</strong>
+        </div>
+
+        <div className="summary-item">
+          <Users size={20} />
+          <span>Industry Supervisor</span>
+          <strong>
+            {placement.industry_supervisor_name || "—"}
+          </strong>
+        </div>
+
+        <div className="summary-item">
+          <Calendar size={20} />
+          <span>Duration</span>
+          <strong>
+            {placement.start_date || "—"} to{" "}
+            {placement.end_date || "—"}
+          </strong>
+        </div>
+      </div>
+
+      <div style={{ marginTop: "14px", fontSize: "14px" }}>
+        <strong>Address:</strong> {placement.company_address}
+      </div>
+    </section>
+  );
+}
+
+/* -----------------------------------------------------
+   Shared: weekly log entries (list + add + mandatory doc)
+------------------------------------------------------ */
+
+function SiwesLogEntries({
+  token,
+  placementId,
+  entries,
+  canEdit,
+  onLogout,
+  onChanged,
+}) {
+  const [form, setForm] = useState(EMPTY_LOG_FORM);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [uploadingFor, setUploadingFor] = useState(null);
+  const [downloadingId, setDownloadingId] = useState(null);
+
+  async function handleAddEntry(event) {
+    event.preventDefault();
+
+    if (saving) return;
+
+    setError("");
+
+    if (
+      !form.week_start_date ||
+      !form.week_end_date ||
+      !form.description.trim()
+    ) {
+      setError("Please fill in the week's dates and description.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      await axios.post(
+        `${API_URL}/siwes/placements/${placementId}/log-entries`,
+        {
+          week_start_date: form.week_start_date,
+          week_end_date: form.week_end_date,
+          description: form.description.trim(),
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      setForm(EMPTY_LOG_FORM);
+      await onChanged();
+    } catch (err) {
+      console.error("SIWES LOG ENTRY ERROR:", err);
+
+      if ([401, 403].includes(err.response?.status)) {
+        onLogout();
+        return;
+      }
+
+      setError(
+        err.response?.data?.detail || "Unable to save this log entry."
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleUpload(entryId, file) {
+    if (!file) return;
+
+    setError("");
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      setUploadingFor(entryId);
+
+      await axios.post(
+        `${API_URL}/siwes/log-entries/${entryId}/documents`,
+        formData,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
+
+      await onChanged();
+    } catch (err) {
+      console.error("SIWES LOG UPLOAD ERROR:", err);
+
+      if ([401, 403].includes(err.response?.status)) {
+        onLogout();
+        return;
+      }
+
+      setError(
+        err.response?.data?.detail ||
+          "Unable to upload the signed page for this week."
+      );
+    } finally {
+      setUploadingFor(null);
+    }
+  }
+
+  async function handleDownload(entryId, doc) {
+    setError("");
+
+    try {
+      setDownloadingId(doc.id);
+
+      const response = await axios.get(
+        `${API_URL}/siwes/log-entries/${entryId}/documents/${doc.id}/download`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          responseType: "blob",
+        }
+      );
+
+      const url = window.URL.createObjectURL(
+        new Blob([response.data])
+      );
+
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", doc.file_name);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("SIWES LOG DOWNLOAD ERROR:", err);
+
+      if ([401, 403].includes(err.response?.status)) {
+        onLogout();
+        return;
+      }
+
+      setError("Unable to download this file.");
+    } finally {
+      setDownloadingId(null);
+    }
+  }
+
+  return (
+    <section className="panel" style={{ marginTop: "22px" }}>
+      <div className="panel-header">
+        <div>
+          <h2>Weekly Logbook</h2>
+          <p>
+            A signed photo of the physical page is required for each
+            week.
+          </p>
+        </div>
+        <Calendar size={23} />
+      </div>
+
+      {error && <div className="error">{error}</div>}
+
+      {canEdit && (
+        <form
+          onSubmit={handleAddEntry}
+          className="student-form-grid"
+          style={{ marginBottom: "18px" }}
+        >
+          <div className="input-group">
+            <label>Week Start</label>
+            <input
+              type="date"
+              value={form.week_start_date}
+              onChange={(e) =>
+                setForm({ ...form, week_start_date: e.target.value })
+              }
+            />
+          </div>
+
+          <div className="input-group">
+            <label>Week End</label>
+            <input
+              type="date"
+              value={form.week_end_date}
+              onChange={(e) =>
+                setForm({ ...form, week_end_date: e.target.value })
+              }
+            />
+          </div>
+
+          <div
+            className="input-group"
+            style={{ gridColumn: "1 / -1" }}
+          >
+            <label>Description of Work Done</label>
+            <textarea
+              value={form.description}
+              onChange={(e) =>
+                setForm({ ...form, description: e.target.value })
+              }
+              placeholder="What did you work on this week?"
+              rows={3}
+            />
+          </div>
+
+          <div>
+            <button
+              type="submit"
+              className="ap-save-button"
+              disabled={saving}
+            >
+              {saving ? (
+                <span className="spinner" />
+              ) : (
+                <>
+                  <Plus size={16} />
+                  Add Week's Entry
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {(!entries || entries.length === 0) ? (
+        <div className="empty-state">
+          <p>No log entries yet.</p>
+        </div>
+      ) : (
+        <div className="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Week</th>
+                <th>Description</th>
+                <th>Signed Page</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {entries.map((entry) => (
+                <tr key={entry.id}>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    {entry.week_start_date} to{" "}
+                    {entry.week_end_date}
+                  </td>
+
+                  <td>{entry.description}</td>
+
+                  <td>
+                    {entry.documents && entry.documents.length > 0 ? (
+                      <button
+                        type="button"
+                        className="ap-secondary-button"
+                        onClick={() =>
+                          handleDownload(
+                            entry.id,
+                            entry.documents[0]
+                          )
+                        }
+                        disabled={
+                          downloadingId === entry.documents[0].id
+                        }
+                      >
+                        {downloadingId ===
+                        entry.documents[0].id ? (
+                          <span className="spinner" />
+                        ) : (
+                          "Download"
+                        )}
+                      </button>
+                    ) : canEdit ? (
+                      <label
+                        className="ap-secondary-button"
+                        style={{ cursor: "pointer" }}
+                      >
+                        {uploadingFor === entry.id ? (
+                          <span className="spinner" />
+                        ) : (
+                          "Upload"
+                        )}
+                        <input
+                          type="file"
+                          style={{ display: "none" }}
+                          disabled={uploadingFor === entry.id}
+                          onChange={(e) =>
+                            handleUpload(
+                              entry.id,
+                              e.target.files?.[0]
+                            )
+                          }
+                        />
+                      </label>
+                    ) : (
+                      <span className="badge badge-danger">
+                        Missing
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/* -----------------------------------------------------
+   Student self-service view
+------------------------------------------------------ */
+
+function SiwesStudentView({ token, onLogout }) {
+  const [studentRecord, setStudentRecord] = useState(null);
+  const [placement, setPlacement] = useState(null);
+  const [entries, setEntries] = useState([]);
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const authHeader = {
+    headers: { Authorization: `Bearer ${token}` },
+  };
+
+  async function loadAll() {
+    setLoading(true);
+    setError("");
+
+    try {
+      const studentRes = await axios.get(
+        `${API_URL}/students/me`,
+        authHeader
+      );
+
+      setStudentRecord(studentRes.data);
+
+      try {
+        const placementRes = await axios.get(
+          `${API_URL}/siwes/placements/me`,
+          authHeader
+        );
+
+        setPlacement(placementRes.data);
+
+        const entriesRes = await axios.get(
+          `${API_URL}/siwes/placements/${placementRes.data.id}/log-entries`,
+          authHeader
+        );
+
+        setEntries(entriesRes.data);
+
+        const reportRes = await axios.get(
+          `${API_URL}/siwes/assessments/me`,
+          authHeader
+        );
+
+        setReport(reportRes.data);
+      } catch (innerErr) {
+        if (innerErr.response?.status !== 404) throw innerErr;
+        setPlacement(null);
+      }
+    } catch (err) {
+      console.error("SIWES STUDENT VIEW ERROR:", err);
+
+      if ([401, 403].includes(err.response?.status)) {
+        onLogout();
+        return;
+      }
+
+      if (err.response?.status === 404) {
+        setError(
+          "Please submit your student details under Students first."
+        );
+      } else {
+        setError("Unable to load your SIWES information.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadAll();
+  }, [token]);
+
+  if (loading) {
+    return (
+      <div className="assessment-page-wrap">
+        <section className="panel">
+          <div className="empty-state">
+            <div className="loading-spinner" />
+            <p>Loading your SIWES information...</p>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <div className="assessment-page-wrap">
+      {error && <div className="error">{error}</div>}
+
+      {!placement ? (
+        studentRecord && (
+          <SiwesPlacementForm
+            token={token}
+            studentId={studentRecord.id}
+            onLogout={onLogout}
+            onCreated={loadAll}
+          />
+        )
+      ) : (
+        <>
+          <SiwesPlacementSummary placement={placement} />
+
+          <SiwesLogEntries
+            token={token}
+            placementId={placement.id}
+            entries={entries}
+            canEdit={true}
+            onLogout={onLogout}
+            onChanged={loadAll}
+          />
+
+          {report && (
+            <section className="panel" style={{ marginTop: "22px" }}>
+              <div className="panel-header">
+                <div>
+                  <h2>Presentation Score</h2>
+                  <p>Your October presentation result.</p>
+                </div>
+                <ClipboardCheck size={23} />
+              </div>
+
+              {report.status === "pending" ? (
+                <div className="empty-state">
+                  <p>
+                    Not scored yet ({report.assessments_submitted}/
+                    {report.assessments_required}).
+                  </p>
+                </div>
+              ) : (
+                <div className="summary-row">
+                  <div className="summary-item">
+                    <BarChart3 size={20} />
+                    <span>Score</span>
+                    <strong>
+                      {Number(report.average_total).toFixed(2)} /{" "}
+                      {SIWES_MAX_TOTAL}
+                    </strong>
+                  </div>
+
+                  <div className="summary-item">
+                    <CheckCircle size={20} />
+                    <span>Recommendation</span>
+                    <strong>
+                      <RecommendationBadge
+                        value={report.recommendation}
+                      />
+                    </strong>
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* -----------------------------------------------------
+   Admin / Assessor staff view
+------------------------------------------------------ */
+
+function SiwesStaffView({ token, students, onLogout }) {
+  const [search, setSearch] = useState("");
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [placement, setPlacement] = useState(null);
+  const [entries, setEntries] = useState([]);
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [placementMissing, setPlacementMissing] = useState(false);
+
+  const [scoreForm, setScoreForm] = useState(
+    Object.fromEntries(SIWES_RUBRIC.map((c) => [c.key, ""]))
+  );
+  const [remarks, setRemarks] = useState("");
+  const [scoring, setScoring] = useState(false);
+  const [scoreMessage, setScoreMessage] = useState("");
+
+  const authHeader = {
+    headers: { Authorization: `Bearer ${token}` },
+  };
+
+  const matchingStudents = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return [];
+
+    return students
+      .filter((student) => {
+        const name = getStudentName(student).toLowerCase();
+        const matric = getStudentMatric(student).toLowerCase();
+        return name.includes(query) || matric.includes(query);
+      })
+      .slice(0, 10);
+  }, [search, students]);
+
+  async function loadForStudent(student) {
+    setSelectedStudent(student);
+    setSearch("");
+    setError("");
+    setPlacement(null);
+    setEntries([]);
+    setReport(null);
+    setPlacementMissing(false);
+    setScoreMessage("");
+    setLoading(true);
+
+    try {
+      const placementRes = await axios.get(
+        `${API_URL}/siwes/placements/student/${student.id}`,
+        authHeader
+      );
+
+      setPlacement(placementRes.data);
+
+      const entriesRes = await axios.get(
+        `${API_URL}/siwes/placements/${placementRes.data.id}/log-entries`,
+        authHeader
+      );
+
+      setEntries(entriesRes.data);
+
+      const reportRes = await axios.get(
+        `${API_URL}/siwes/assessments/student/${student.id}/report`,
+        authHeader
+      );
+
+      setReport(reportRes.data);
+    } catch (err) {
+      console.error("SIWES STAFF VIEW ERROR:", err);
+
+      if ([401, 403].includes(err.response?.status)) {
+        onLogout();
+        return;
+      }
+
+      if (err.response?.status === 404) {
+        setPlacementMissing(true);
+      } else {
+        setError("Unable to load SIWES information for this student.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function changeStudent() {
+    setSelectedStudent(null);
+    setPlacement(null);
+    setEntries([]);
+    setReport(null);
+    setPlacementMissing(false);
+    setError("");
+  }
+
+  async function refreshCurrent() {
+    if (selectedStudent) await loadForStudent(selectedStudent);
+  }
+
+  async function handleScoreSubmit(event) {
+    event.preventDefault();
+
+    if (scoring) return;
+
+    setError("");
+
+    const missing = SIWES_RUBRIC.filter(
+      (c) => scoreForm[c.key] === ""
+    );
+
+    if (missing.length > 0) {
+      setError(
+        `Please enter a score for: ${missing
+          .map((c) => c.label)
+          .join(", ")}.`
+      );
+      return;
+    }
+
+    try {
+      setScoring(true);
+
+      const payload = {
+        student_id: selectedStudent.id,
+        ...Object.fromEntries(
+          SIWES_RUBRIC.map((c) => [c.key, Number(scoreForm[c.key])])
+        ),
+        remarks: remarks.trim() || null,
+      };
+
+      const response = await axios.post(
+        `${API_URL}/siwes/assessments/`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      setScoreMessage(
+        `Score saved: ${response.data.total_score}/${SIWES_MAX_TOTAL} (${response.data.recommendation}).`
+      );
+
+      const reportRes = await axios.get(
+        `${API_URL}/siwes/assessments/student/${selectedStudent.id}/report`,
+        authHeader
+      );
+
+      setReport(reportRes.data);
+    } catch (err) {
+      console.error("SIWES SCORE ERROR:", err);
+
+      if ([401, 403].includes(err.response?.status)) {
+        onLogout();
+        return;
+      }
+
+      setError(
+        err.response?.data?.detail || "Unable to save this score."
+      );
+    } finally {
+      setScoring(false);
+    }
+  }
+
+  const currentTotal = SIWES_RUBRIC.reduce(
+    (sum, c) => sum + Number(scoreForm[c.key] || 0),
+    0
+  );
+
+  return (
+    <div className="assessment-page-wrap">
+      <section className="ap-panel">
+        <div className="ap-panel-header">
+          <div>
+            <h2>Find Student</h2>
+            <p>Search by name or matriculation number.</p>
+          </div>
+          <Briefcase size={23} />
+        </div>
+
+        {!selectedStudent ? (
+          <div className="ap-search-wrap">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Type student name or matric number..."
+              autoComplete="off"
+            />
+
+            {search.trim() && matchingStudents.length > 0 && (
+              <div className="ap-results">
+                {matchingStudents.map((student) => (
+                  <button
+                    key={student.id}
+                    type="button"
+                    className="ap-result"
+                    onClick={() => loadForStudent(student)}
+                  >
+                    <div className="ap-result-icon">
+                      <Users size={18} />
+                    </div>
+                    <div className="ap-result-text">
+                      <strong>{getStudentName(student)}</strong>
+                      <span>{getStudentMatric(student)}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {search.trim() && matchingStudents.length === 0 && (
+              <div className="ap-empty">No matching student found.</div>
+            )}
+          </div>
+        ) : (
+          <div className="ap-selected-student">
+            <div>
+              <span className="ap-selected-label">SIWES FOR</span>
+              <h3>{getStudentName(selectedStudent)}</h3>
+              <div className="ap-selected-meta">
+                <span>
+                  Matric No:{" "}
+                  <strong>{getStudentMatric(selectedStudent)}</strong>
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="ap-secondary-button"
+              onClick={changeStudent}
+            >
+              Change Student
+            </button>
+          </div>
+        )}
+      </section>
+
+      {error && <div className="error">{error}</div>}
+
+      {selectedStudent && loading && (
+        <section className="panel">
+          <div className="empty-state">
+            <div className="loading-spinner" />
+            <p>Loading...</p>
+          </div>
+        </section>
+      )}
+
+      {selectedStudent && !loading && placementMissing && (
+        <SiwesPlacementForm
+          token={token}
+          studentId={selectedStudent.id}
+          onLogout={onLogout}
+          onCreated={refreshCurrent}
+        />
+      )}
+
+      {selectedStudent && !loading && placement && (
+        <>
+          <SiwesPlacementSummary placement={placement} />
+
+          <SiwesLogEntries
+            token={token}
+            placementId={placement.id}
+            entries={entries}
+            canEdit={true}
+            onLogout={onLogout}
+            onChanged={refreshCurrent}
+          />
+
+          <section className="ap-panel" style={{ marginTop: "22px" }}>
+            <div className="ap-panel-header">
+              <div>
+                <h2>October Presentation Score</h2>
+                <p>
+                  {report?.status === "ready"
+                    ? "Already scored -- submitting again updates it."
+                    : "Enter this student's presentation score."}
+                </p>
+              </div>
+
+              <div className="ap-live-total">
+                <span>TOTAL</span>
+                <strong>
+                  {currentTotal} <small>/ {SIWES_MAX_TOTAL}</small>
+                </strong>
+              </div>
+            </div>
+
+            {scoreMessage && (
+              <div className="success">
+                <CheckCircle size={18} />
+                {scoreMessage}
+              </div>
+            )}
+
+            <form onSubmit={handleScoreSubmit}>
+              <div className="ap-criteria-row">
+                {SIWES_RUBRIC.map((criterion) => (
+                  <div className="ap-criterion-card" key={criterion.key}>
+                    <label>{criterion.label}</label>
+                    <small className="criterion-max">
+                      Maximum: {criterion.maximum}
+                    </small>
+
+                    <div className="ap-score-input-wrap">
+                      <input
+                        type="number"
+                        min="0"
+                        max={criterion.maximum}
+                        step="0.5"
+                        value={scoreForm[criterion.key]}
+                        onChange={(e) => {
+                          let value = e.target.value;
+
+                          if (value !== "") {
+                            let num = Number(value);
+                            if (num > criterion.maximum)
+                              num = criterion.maximum;
+                            if (num < 0) num = 0;
+                            value = num;
+                          }
+
+                          setScoreForm({
+                            ...scoreForm,
+                            [criterion.key]: value,
+                          });
+                        }}
+                        placeholder="0"
+                      />
+                      <span className="ap-max-label">
+                        / {criterion.maximum}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="input-group" style={{ marginTop: "16px" }}>
+                <label>Remarks</label>
+                <textarea
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                  placeholder="Optional remarks..."
+                  rows={2}
+                />
+              </div>
+
+              <div className="ap-actions">
+                <button
+                  type="submit"
+                  className="ap-save-button"
+                  disabled={scoring}
+                >
+                  {scoring ? (
+                    <span className="spinner" />
+                  ) : (
+                    <>
+                      <Save size={18} />
+                      Save Score
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* -----------------------------------------------------
+   Coordinator view
+------------------------------------------------------ */
+
+function SiwesCoordinatorView({ token, onLogout }) {
+  const [placements, setPlacements] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const [expandedId, setExpandedId] = useState(null);
+  const [entries, setEntries] = useState([]);
+  const [comments, setComments] = useState([]);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+
+  const [commentText, setCommentText] = useState("");
+  const [visitDate, setVisitDate] = useState("");
+  const [savingComment, setSavingComment] = useState(false);
+
+  const authHeader = {
+    headers: { Authorization: `Bearer ${token}` },
+  };
+
+  async function loadPlacements() {
+    setLoading(true);
+    setError("");
+
+    try {
+      const response = await axios.get(
+        `${API_URL}/siwes/placements/`,
+        authHeader
+      );
+
+      setPlacements(response.data);
+    } catch (err) {
+      console.error("SIWES COORDINATOR LIST ERROR:", err);
+
+      if ([401, 403].includes(err.response?.status)) {
+        onLogout();
+        return;
+      }
+
+      setError("Unable to load SIWES placements.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadPlacements();
+  }, [token]);
+
+  async function toggleExpand(placement) {
+    if (expandedId === placement.id) {
+      setExpandedId(null);
+      return;
+    }
+
+    setExpandedId(placement.id);
+    setLoadingDetail(true);
+    setCommentText("");
+    setVisitDate("");
+
+    try {
+      const [entriesRes, commentsRes] = await Promise.all([
+        axios.get(
+          `${API_URL}/siwes/placements/${placement.id}/log-entries`,
+          authHeader
+        ),
+        axios.get(
+          `${API_URL}/siwes/placements/${placement.id}/coordinator-comments`,
+          authHeader
+        ),
+      ]);
+
+      setEntries(entriesRes.data);
+      setComments(commentsRes.data);
+    } catch (err) {
+      console.error("SIWES COORDINATOR DETAIL ERROR:", err);
+
+      if ([401, 403].includes(err.response?.status)) {
+        onLogout();
+      }
+    } finally {
+      setLoadingDetail(false);
+    }
+  }
+
+  async function submitComment(placementId) {
+    if (savingComment) return;
+
+    if (!commentText.trim() || !visitDate) {
+      setError("Please enter a comment and visit date.");
+      return;
+    }
+
+    setError("");
+
+    try {
+      setSavingComment(true);
+
+      await axios.post(
+        `${API_URL}/siwes/placements/${placementId}/coordinator-comments`,
+        {
+          comment: commentText.trim(),
+          visit_date: visitDate,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      const commentsRes = await axios.get(
+        `${API_URL}/siwes/placements/${placementId}/coordinator-comments`,
+        authHeader
+      );
+
+      setComments(commentsRes.data);
+      setCommentText("");
+      setVisitDate("");
+    } catch (err) {
+      console.error("SIWES COORDINATOR COMMENT ERROR:", err);
+
+      if ([401, 403].includes(err.response?.status)) {
+        onLogout();
+        return;
+      }
+
+      setError(
+        err.response?.data?.detail || "Unable to save this comment."
+      );
+    } finally {
+      setSavingComment(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="student-page">
+        <section className="panel">
+          <div className="empty-state">
+            <div className="loading-spinner" />
+            <p>Loading SIWES placements...</p>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <div className="student-page">
+      {error && <div className="error">{error}</div>}
+
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <h2>SIWES Students</h2>
+            <p>Students in your department currently on placement.</p>
+          </div>
+          <Briefcase size={23} />
+        </div>
+
+        {placements.length === 0 ? (
+          <div className="empty-state">
+            <Briefcase size={35} />
+            <h3>No placements yet</h3>
+            <p>No students in your department have registered a SIWES placement.</p>
+          </div>
+        ) : (
+          placements.map((placement) => (
+            <div
+              key={placement.id}
+              style={{
+                border: "1px solid var(--border-color, #d1d5db)",
+                borderRadius: "10px",
+                padding: "14px",
+                marginBottom: "12px",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  cursor: "pointer",
+                }}
+                onClick={() => toggleExpand(placement)}
+              >
+                <div>
+                  <strong>{placement.company_name}</strong>
+                  <div style={{ fontSize: "13px", opacity: 0.8 }}>
+                    Student #{placement.student_id}
+                  </div>
+                </div>
+
+                <button type="button" className="ap-secondary-button">
+                  {expandedId === placement.id ? "Hide" : "View"}
+                </button>
+              </div>
+
+              {expandedId === placement.id && (
+                <div style={{ marginTop: "14px" }}>
+                  {loadingDetail ? (
+                    <div className="empty-state">
+                      <div className="loading-spinner" />
+                    </div>
+                  ) : (
+                    <>
+                      <div className="overview-list">
+                        <span
+                          style={{
+                            display: "block",
+                            fontWeight: 650,
+                            marginBottom: "8px",
+                          }}
+                        >
+                          Weekly Log Entries
+                        </span>
+
+                        {entries.length === 0 ? (
+                          <div>
+                            <span>No entries yet.</span>
+                          </div>
+                        ) : (
+                          entries.map((entry) => (
+                            <div key={entry.id}>
+                              <span>
+                                {entry.week_start_date} to{" "}
+                                {entry.week_end_date}
+                              </span>
+                              <strong
+                                style={{
+                                  fontSize: "13px",
+                                  fontWeight: 500,
+                                }}
+                              >
+                                {entry.description}
+                              </strong>
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      <div
+                        className="overview-list"
+                        style={{ marginTop: "14px" }}
+                      >
+                        <span
+                          style={{
+                            display: "block",
+                            fontWeight: 650,
+                            marginBottom: "8px",
+                          }}
+                        >
+                          Visit Comments
+                        </span>
+
+                        {comments.length === 0 ? (
+                          <div>
+                            <span>No visit comments yet.</span>
+                          </div>
+                        ) : (
+                          comments.map((c) => (
+                            <div key={c.id}>
+                              <span>
+                                {c.visit_date} -- {c.coordinator_name}
+                              </span>
+                              <strong
+                                style={{
+                                  fontSize: "13px",
+                                  fontWeight: 500,
+                                }}
+                              >
+                                {c.comment}
+                              </strong>
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      <div
+                        className="student-form-grid"
+                        style={{ marginTop: "14px" }}
+                      >
+                        <div className="input-group">
+                          <label>Visit Date</label>
+                          <input
+                            type="date"
+                            value={visitDate}
+                            onChange={(e) =>
+                              setVisitDate(e.target.value)
+                            }
+                          />
+                        </div>
+
+                        <div
+                          className="input-group"
+                          style={{ gridColumn: "1 / -1" }}
+                        >
+                          <label>Comment</label>
+                          <textarea
+                            value={commentText}
+                            onChange={(e) =>
+                              setCommentText(e.target.value)
+                            }
+                            placeholder="Notes from this supervision visit..."
+                            rows={2}
+                          />
+                        </div>
+
+                        <div>
+                          <button
+                            type="button"
+                            className="ap-save-button"
+                            onClick={() =>
+                              submitComment(placement.id)
+                            }
+                            disabled={savingComment}
+                          >
+                            {savingComment ? (
+                              <span className="spinner" />
+                            ) : (
+                              <>
+                                <MessageSquare size={16} />
+                                Add Comment
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </section>
     </div>
   );
 }
