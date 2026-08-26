@@ -31,6 +31,7 @@ import {
   Briefcase,
   Calendar,
   MessageSquare,
+  ChevronDown,
 } from "lucide-react";
 
 const API_URL = "https://ems-backend-app-2ju7.onrender.com";
@@ -488,6 +489,44 @@ function Dashboard({
   const [assessmentView, setAssessmentView] =
     useState("dashboard");
 
+  const FYP_VIEWS = [
+    "students",
+    "assessment",
+    "import",
+    "external",
+    "report",
+    "sessions",
+  ];
+
+  const ADMIN_VIEWS = ["users", "academic-setup"];
+
+  function moduleForView(view) {
+    if (FYP_VIEWS.includes(view)) return "fyp";
+    if (ADMIN_VIEWS.includes(view)) return "admin";
+    return null;
+  }
+
+  const [expandedModule, setExpandedModule] = useState(
+    () => moduleForView("dashboard")
+  );
+
+  function toggleModule(moduleKey) {
+    setExpandedModule((current) =>
+      current === moduleKey ? null : moduleKey
+    );
+  }
+
+  function goToView(view) {
+    const owningModule = moduleForView(view);
+
+    if (owningModule) {
+      setExpandedModule(owningModule);
+    }
+
+    setAssessmentView(view);
+    setSidebarOpen(false);
+  }
+
   const [successMessage, setSuccessMessage] =
     useState("");
 
@@ -675,154 +714,101 @@ function Dashboard({
                 : ""
             }`}
             type="button"
-            onClick={() => {
-              setAssessmentView("dashboard");
-              setSidebarOpen(false);
-            }}
+            onClick={() => goToView("dashboard")}
           >
             <BarChart3 size={19} />
             Dashboard
           </button>
 
           <button
-            className={`nav-item ${
-              assessmentView === "students"
-                ? "active"
-                : ""
+            className={`nav-item nav-group-header ${
+              expandedModule === "fyp" ? "expanded" : ""
             }`}
             type="button"
-            onClick={() => {
-              setAssessmentView("students");
-              setSidebarOpen(false);
-            }}
+            onClick={() => toggleModule("fyp")}
           >
-            <Users size={19} />
-            Students
+            <GraduationCap size={19} />
+            Final Year Presentation
+            <ChevronDown size={16} className="nav-chevron" />
           </button>
 
-          {currentUser?.role !== "student" && (
-            <button
-              className={`nav-item ${
-                assessmentView === "assessment"
-                  ? "active"
-                  : ""
-              }`}
-              type="button"
-              onClick={() => {
-                setAssessmentView("assessment");
-                setSidebarOpen(false);
-              }}
-            >
-              <ClipboardCheck size={19} />
-              Assessments
-            </button>
-          )}
+          {expandedModule === "fyp" && (
+            <div className="nav-subgroup">
+              <button
+                className={`nav-item nav-subitem ${
+                  assessmentView === "students" ? "active" : ""
+                }`}
+                type="button"
+                onClick={() => goToView("students")}
+              >
+                <Users size={17} />
+                Students
+              </button>
 
-          {currentUser?.role !== "student" && (
-            <button
-              className={`nav-item ${
-                assessmentView === "import"
-                  ? "active"
-                  : ""
-              }`}
-              type="button"
-              onClick={() => {
-                setAssessmentView("import");
-                setSidebarOpen(false);
-              }}
-            >
-              <Upload size={19} />
-              Import Excel
-            </button>
-          )}
+              {currentUser?.role !== "student" && (
+                <button
+                  className={`nav-item nav-subitem ${
+                    assessmentView === "assessment" ? "active" : ""
+                  }`}
+                  type="button"
+                  onClick={() => goToView("assessment")}
+                >
+                  <ClipboardCheck size={17} />
+                  Assessments
+                </button>
+              )}
 
-          {(currentUser?.role === "admin" ||
-            currentUser?.role === "external_supervisor") && (
-            <button
-              className={`nav-item ${
-                assessmentView === "external"
-                  ? "active"
-                  : ""
-              }`}
-              type="button"
-              onClick={() => {
-                setAssessmentView("external");
-                setSidebarOpen(false);
-              }}
-            >
-              <ShieldCheck size={19} />
-              External Score
-            </button>
-          )}
+              {currentUser?.role !== "student" && (
+                <button
+                  className={`nav-item nav-subitem ${
+                    assessmentView === "import" ? "active" : ""
+                  }`}
+                  type="button"
+                  onClick={() => goToView("import")}
+                >
+                  <Upload size={17} />
+                  Import Excel
+                </button>
+              )}
 
-          <button
-            className={`nav-item ${
-              assessmentView === "report"
-                ? "active"
-                : ""
-            }`}
-            type="button"
-            onClick={() => {
-              setAssessmentView("report");
-              setSidebarOpen(false);
-            }}
-          >
-            <FileText size={19} />
-            Reports
-          </button>
+              {(currentUser?.role === "admin" ||
+                currentUser?.role === "external_supervisor") && (
+                <button
+                  className={`nav-item nav-subitem ${
+                    assessmentView === "external" ? "active" : ""
+                  }`}
+                  type="button"
+                  onClick={() => goToView("external")}
+                >
+                  <ShieldCheck size={17} />
+                  External Score
+                </button>
+              )}
 
-          {currentUser?.role === "admin" && (
-            <button
-              className={`nav-item ${
-                assessmentView === "users"
-                  ? "active"
-                  : ""
-              }`}
-              type="button"
-              onClick={() => {
-                setAssessmentView("users");
-                setSidebarOpen(false);
-              }}
-            >
-              <UserCog size={19} />
-              Users
-            </button>
-          )}
+              <button
+                className={`nav-item nav-subitem ${
+                  assessmentView === "report" ? "active" : ""
+                }`}
+                type="button"
+                onClick={() => goToView("report")}
+              >
+                <FileText size={17} />
+                Reports
+              </button>
 
-          {currentUser?.role === "admin" && (
-            <button
-              className={`nav-item ${
-                assessmentView === "academic-setup"
-                  ? "active"
-                  : ""
-              }`}
-              type="button"
-              onClick={() => {
-                setAssessmentView("academic-setup");
-                setSidebarOpen(false);
-              }}
-            >
-              <GraduationCap size={19} />
-              Academic Setup
-            </button>
-          )}
-
-          {currentUser?.role !== "student" && (
-            <button
-              className={`nav-item ${
-                assessmentView === "sessions"
-                  ? "active"
-                  : ""
-              }`}
-              type="button"
-              onClick={() => {
-                setAssessmentView("sessions");
-                setSidebarOpen(false);
-              }}
-            >
-              <BookOpen size={19} />
-              Sessions
-            </button>
+              {currentUser?.role !== "student" && (
+                <button
+                  className={`nav-item nav-subitem ${
+                    assessmentView === "sessions" ? "active" : ""
+                  }`}
+                  type="button"
+                  onClick={() => goToView("sessions")}
+                >
+                  <BookOpen size={17} />
+                  Sessions
+                </button>
+              )}
+            </div>
           )}
 
           {currentUser?.role !== "external_supervisor" && (
@@ -831,14 +817,66 @@ function Dashboard({
                 assessmentView === "siwes" ? "active" : ""
               }`}
               type="button"
-              onClick={() => {
-                setAssessmentView("siwes");
-                setSidebarOpen(false);
-              }}
+              onClick={() => goToView("siwes")}
             >
               <Briefcase size={19} />
               SIWES
             </button>
+          )}
+
+          <button
+            className="nav-item nav-item-disabled"
+            type="button"
+            disabled
+            title="Coming soon"
+          >
+            <Building2 size={19} />
+            NACOS
+            <span className="nav-soon-badge">Soon</span>
+          </button>
+
+          {currentUser?.role === "admin" && (
+            <>
+              <button
+                className={`nav-item nav-group-header ${
+                  expandedModule === "admin" ? "expanded" : ""
+                }`}
+                type="button"
+                onClick={() => toggleModule("admin")}
+              >
+                <Settings size={19} />
+                Administration
+                <ChevronDown size={16} className="nav-chevron" />
+              </button>
+
+              {expandedModule === "admin" && (
+                <div className="nav-subgroup">
+                  <button
+                    className={`nav-item nav-subitem ${
+                      assessmentView === "users" ? "active" : ""
+                    }`}
+                    type="button"
+                    onClick={() => goToView("users")}
+                  >
+                    <UserCog size={17} />
+                    Users
+                  </button>
+
+                  <button
+                    className={`nav-item nav-subitem ${
+                      assessmentView === "academic-setup"
+                        ? "active"
+                        : ""
+                    }`}
+                    type="button"
+                    onClick={() => goToView("academic-setup")}
+                  >
+                    <Layers size={17} />
+                    Academic Setup
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </nav>
         <div className="sidebar-footer">
@@ -8729,6 +8767,54 @@ const ASSESSMENT_STYLES = `
 
 .login-link-button:hover {
   text-decoration: underline;
+}
+
+.nav-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.nav-group-header .nav-chevron {
+  margin-left: auto;
+  transition: transform 0.15s ease;
+}
+
+.nav-group-header.expanded .nav-chevron {
+  transform: rotate(180deg);
+}
+
+.nav-subgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 6px 0;
+}
+
+.nav-subitem {
+  padding-left: 40px !important;
+  font-size: 13.5px;
+}
+
+.nav-item-disabled {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.nav-soon-badge {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.15);
+  text-transform: uppercase;
 }
 `;
 
