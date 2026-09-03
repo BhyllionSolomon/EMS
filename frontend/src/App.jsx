@@ -32,6 +32,7 @@ import {
   Calendar,
   MessageSquare,
   ChevronDown,
+  UserCheck,
 } from "lucide-react";
 
 const API_URL = "https://ems-backend-app-2ju7.onrender.com";
@@ -79,7 +80,7 @@ function App() {
     localStorage.getItem("access_token")
   );
 
-  const [authView, setAuthView] = useState("login");
+  const [authView, setAuthView] = useState("home");
 
   const [theme, setTheme] = useState(
     localStorage.getItem("theme") || "light"
@@ -98,7 +99,7 @@ function App() {
   function handleLogout() {
     localStorage.removeItem("access_token");
     setToken(null);
-    setAuthView("login");
+    setAuthView("home");
   }
 
   if (!token) {
@@ -107,6 +108,19 @@ function App() {
         <StudentSignup
           onSignedUp={handleLogin}
           onSwitchToLogin={() => setAuthView("login")}
+          onSwitchToHome={() => setAuthView("home")}
+          theme={theme}
+          onThemeChange={setTheme}
+        />
+      );
+    }
+
+    if (authView === "login") {
+      return (
+        <Login
+          onLogin={handleLogin}
+          onSwitchToSignup={() => setAuthView("signup")}
+          onSwitchToHome={() => setAuthView("home")}
           theme={theme}
           onThemeChange={setTheme}
         />
@@ -114,8 +128,8 @@ function App() {
     }
 
     return (
-      <Login
-        onLogin={handleLogin}
+      <WelcomePage
+        onSwitchToLogin={() => setAuthView("login")}
         onSwitchToSignup={() => setAuthView("signup")}
         theme={theme}
         onThemeChange={setTheme}
@@ -162,12 +176,185 @@ function ThemeSwitcher({
 }
 
 /* =====================================================
+   WELCOME / LANDING PAGE
+===================================================== */
+
+const PROGRAMME_GOALS = [
+  {
+    name: "Computer Science",
+    goal:
+      "Building strong foundations in algorithms, software design, and computational thinking to solve real-world problems.",
+  },
+  {
+    name: "Software Engineering",
+    goal:
+      "Training students to design, build, and maintain large-scale, reliable software systems using sound engineering practices.",
+  },
+  {
+    name: "Cybersecurity",
+    goal:
+      "Equipping students to protect systems, networks, and data against evolving digital threats.",
+  },
+  {
+    name: "Information Technology",
+    goal:
+      "Preparing students to plan, deploy, and manage the IT infrastructure and services organisations depend on.",
+  },
+];
+
+function WelcomePage({
+  onSwitchToLogin,
+  onSwitchToSignup,
+  theme,
+  onThemeChange,
+}) {
+  return (
+    <div className="welcome-page">
+      <div className="welcome-theme">
+        <ThemeSwitcher theme={theme} onThemeChange={onThemeChange} />
+      </div>
+
+      <header className="welcome-hero">
+        <div className="login-icon">
+          <GraduationCap size={48} />
+          <Sparkles className="sparkle-icon" size={20} />
+        </div>
+
+        <h1>
+          Welcome to the Department of Computing Science and
+          Digital Technology
+        </h1>
+
+        <p className="welcome-subtitle">
+          Kola Daisi University, Ibadan
+        </p>
+
+        <div className="welcome-hero-actions">
+          <button
+            type="button"
+            className="welcome-primary-button"
+            onClick={onSwitchToLogin}
+          >
+            Sign In
+          </button>
+
+          <button
+            type="button"
+            className="welcome-secondary-button"
+            onClick={onSwitchToSignup}
+          >
+            New Student? Register Here
+          </button>
+        </div>
+      </header>
+
+      <section className="welcome-section">
+        <h2>Our Programmes</h2>
+
+        <div className="welcome-programme-grid">
+          {PROGRAMME_GOALS.map((programme) => (
+            <div
+              className="welcome-programme-card"
+              key={programme.name}
+            >
+              <h3>{programme.name}</h3>
+              <p>{programme.goal}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="welcome-section welcome-section-alt">
+        <h2>What Our Students Say</h2>
+
+        <div className="welcome-testimonial-grid">
+          <div className="welcome-testimonial-card">
+            <p>
+              "The department gave me the foundation I needed to
+              confidently take on real industry projects during my
+              SIWES placement."
+            </p>
+            <span>— Final Year Student, Computer Science</span>
+          </div>
+
+          <div className="welcome-testimonial-card">
+            <p>
+              "Small class sizes meant lecturers actually knew us
+              and were always willing to help outside of class."
+            </p>
+            <span>— Final Year Student, Software Engineering</span>
+          </div>
+
+          <div className="welcome-testimonial-card">
+            <p>
+              "I came in knowing very little about security and
+              left with real, practical skills I use every day."
+            </p>
+            <span>— Alumnus, Cybersecurity</span>
+          </div>
+        </div>
+
+        <p className="welcome-placeholder-note">
+          (Sample testimonials shown above — replace with real
+          student quotes.)
+        </p>
+      </section>
+
+      <section className="welcome-section">
+        <h2>About Us</h2>
+
+        <p>
+          The Department of Computing Science and Digital
+          Technology at Kola Daisi University is committed to
+          producing graduates who are technically skilled,
+          industry-ready, and equipped to contribute meaningfully
+          to Nigeria's growing digital economy. Through a
+          combination of rigorous academic training, hands-on
+          projects, and industrial work experience, our students
+          graduate ready for both further study and the workplace.
+        </p>
+      </section>
+
+      <section className="welcome-section welcome-section-alt">
+        <h2>Contact Us</h2>
+
+        <div className="welcome-contact-grid">
+          <div>
+            <strong>Address</strong>
+            <p>Kola Daisi University, Ibadan, Oyo State, Nigeria</p>
+          </div>
+
+          <div>
+            <strong>Email</strong>
+            <p>[department email address]</p>
+          </div>
+
+          <div>
+            <strong>Phone</strong>
+            <p>[department phone number]</p>
+          </div>
+        </div>
+      </section>
+
+      <footer className="welcome-footer">
+        <p>
+          © {new Date().getFullYear()} Department of Computing
+          Science and Digital Technology, Kola Daisi University,
+          Ibadan. All rights reserved.
+        </p>
+      </footer>
+    </div>
+  );
+}
+
+/* =====================================================
    LOGIN
 ===================================================== */
 
 function Login({
   onLogin,
   onSwitchToSignup,
+  onSwitchToHome,
   theme,
   onThemeChange,
 }) {
@@ -290,6 +477,16 @@ function Login({
         >
           New student? Create an account
         </button>
+
+        {onSwitchToHome && (
+          <button
+            type="button"
+            className="login-link-button"
+            onClick={onSwitchToHome}
+          >
+            ← Back to Home
+          </button>
+        )}
       </div>
     </div>
   );
@@ -302,6 +499,7 @@ function Login({
 function StudentSignup({
   onSignedUp,
   onSwitchToLogin,
+  onSwitchToHome,
   theme,
   onThemeChange,
 }) {
@@ -462,10 +660,21 @@ function StudentSignup({
         >
           Already have an account? Sign in
         </button>
+
+        {onSwitchToHome && (
+          <button
+            type="button"
+            className="login-link-button"
+            onClick={onSwitchToHome}
+          >
+            ← Back to Home
+          </button>
+        )}
       </div>
     </div>
   );
 }
+
 
 /* =====================================================
    DASHBOARD
@@ -832,6 +1041,50 @@ function Dashboard({
           >
             <Building2 size={19} />
             NACOS
+            <span className="nav-soon-badge">Soon</span>
+          </button>
+
+          <button
+            className="nav-item nav-item-disabled"
+            type="button"
+            disabled
+            title="Coming soon"
+          >
+            <UserCheck size={19} />
+            Student Attendance
+            <span className="nav-soon-badge">Soon</span>
+          </button>
+
+          <button
+            className="nav-item nav-item-disabled"
+            type="button"
+            disabled
+            title="Coming soon"
+          >
+            <BarChart3 size={19} />
+            Performance Analysis
+            <span className="nav-soon-badge">Soon</span>
+          </button>
+
+          <button
+            className="nav-item nav-item-disabled"
+            type="button"
+            disabled
+            title="Coming soon"
+          >
+            <FileText size={19} />
+            Examination Planning
+            <span className="nav-soon-badge">Soon</span>
+          </button>
+
+          <button
+            className="nav-item nav-item-disabled"
+            type="button"
+            disabled
+            title="Coming soon"
+          >
+            <Calendar size={19} />
+            Department Calendar
             <span className="nav-soon-badge">Soon</span>
           </button>
 
@@ -8815,6 +9068,171 @@ const ASSESSMENT_STYLES = `
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.15);
   text-transform: uppercase;
+}
+
+.welcome-page {
+  min-height: 100vh;
+  width: 100%;
+  background:
+    radial-gradient(
+      circle at top left,
+      rgba(99, 102, 241, 0.35),
+      transparent 35%
+    ),
+    radial-gradient(
+      circle at bottom right,
+      rgba(139, 92, 246, 0.35),
+      transparent 35%
+    ),
+    linear-gradient(
+      135deg,
+      #1e1b4b 0%,
+      #312e81 50%,
+      #4c1d95 100%
+    );
+  color: #fff;
+  position: relative;
+  overflow-x: hidden;
+}
+
+.welcome-theme {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  z-index: 5;
+}
+
+.welcome-hero {
+  text-align: center;
+  padding: 80px 24px 60px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.welcome-hero h1 {
+  font-size: 32px;
+  font-weight: 800;
+  margin: 18px 0 8px;
+  line-height: 1.3;
+}
+
+.welcome-subtitle {
+  color: #ddd6fe;
+  font-size: 16px;
+  margin-bottom: 30px;
+}
+
+.welcome-hero-actions {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.welcome-primary-button,
+.welcome-secondary-button {
+  padding: 13px 28px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+}
+
+.welcome-primary-button {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+}
+
+.welcome-secondary-button {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.welcome-section {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 50px 24px;
+}
+
+.welcome-section-alt {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.welcome-section h2 {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.welcome-section p {
+  color: #e0e0f5;
+  line-height: 1.7;
+  font-size: 15px;
+}
+
+.welcome-programme-grid,
+.welcome-testimonial-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px;
+}
+
+.welcome-programme-card,
+.welcome-testimonial-card {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 14px;
+  padding: 22px;
+}
+
+.welcome-programme-card h3 {
+  margin: 0 0 10px;
+  font-size: 17px;
+}
+
+.welcome-testimonial-card p {
+  font-style: italic;
+}
+
+.welcome-testimonial-card span {
+  display: block;
+  margin-top: 12px;
+  font-size: 13px;
+  color: #c4b5fd;
+}
+
+.welcome-placeholder-note {
+  text-align: center;
+  margin-top: 18px;
+  font-size: 12px;
+  color: #a5a3c9;
+}
+
+.welcome-contact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+}
+
+.welcome-contact-grid strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #c4b5fd;
+}
+
+.welcome-contact-grid p {
+  margin: 0;
+}
+
+.welcome-footer {
+  text-align: center;
+  padding: 28px 24px;
+  font-size: 13px;
+  color: #a5a3c9;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 `;
 
